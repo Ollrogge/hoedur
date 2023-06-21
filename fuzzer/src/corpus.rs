@@ -19,6 +19,7 @@ use emulator::{coverage::RawBitmap, ExecutionResult, StopReason};
 use enum_index::EnumIndex;
 use enum_index_derive::EnumIndex;
 use enum_kinds::EnumKind;
+use itertools::Unique;
 use lazy_init::LazyTransform;
 use modeling::input::{stream::Stream, InputContext, InputFile, InputId};
 use rand::{

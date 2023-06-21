@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand, ValueHint};
-use common::{config::fuzzware, log::LOG_INFO};
+use common::{config::fuzzware, log::LOG_DEBUG, log::LOG_INFO};
 use fuzzer::InputCategory;
 use modeling::fuzzware::runner::FuzzwareInstallation;
 use modeling::input::InputId;
@@ -92,9 +92,10 @@ pub struct RootCauseArguments {
     #[command(flatten)]
     pub prefix: ArgumentsPrefixInput,
     /// Path of reproducer input file
-    #[arg(value_name = "INPUT_PATH", value_hint = ValueHint::AnyPath)]
-    pub import_corpus: Vec<PathBuf>,
+    #[arg(long, value_name = "INPUT_PATH", value_hint = ValueHint::AnyPath)]
+    pub inputs: Vec<PathBuf>,
 
+    /// Path to archive directory
     #[command(flatten)]
     pub archive_dir: ArchiveDir,
 }

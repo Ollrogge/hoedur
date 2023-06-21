@@ -85,6 +85,7 @@ pub(crate) fn run_fuzzer(emulator: Emulator<InputFile>, config: HoedurConfig) ->
         config.name,
         config.seed,
         config.import_corpus,
+        vec![],
         config.statistics,
         config.snapshots,
         config.archive,

@@ -2,57 +2,67 @@ use crate::cli::RootCauseArguments;
 use crate::coverage::{CoverageReport, CrashReason};
 use crate::Emulator;
 use anyhow::{Context, Result};
-use archive::{create_archive, Archive, ArchiveBuilder};
+use archive::{
+    create_archive,
+    tar::{write_file, write_serialized},
+    Archive, ArchiveBuilder,
+};
 use common::fs::{bufwriter, decoder};
+use core::arch;
 use fuzzer::Fuzzer;
 use fuzzer::{CorpusEntry, CorpusEntryKind, CorpusInputFile, IntoInputFileIter};
-use modeling::hardware::WriteTo;
+use modeling::hardware::{Input, WriteTo};
 use modeling::input::{InputFile, InputId};
+use nix::libc::creat;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct RootCauseConfig {
-    pub import_corpus: Vec<PathBuf>,
+    pub inputs: Vec<PathBuf>,
     pub archive: ArchiveBuilder,
+    pub archive_dir: PathBuf,
     pub prefix_input: Vec<PathBuf>,
 }
 
 impl RootCauseConfig {
     pub fn new(
-        import_corpus: Vec<PathBuf>,
+        inputs: Vec<PathBuf>,
         archive: ArchiveBuilder,
+        archive_dir: PathBuf,
         prefix_input: Vec<PathBuf>,
     ) -> Self {
         Self {
-            import_corpus,
+            inputs,
             archive,
+            archive_dir,
             prefix_input,
         }
     }
 
     pub fn from_cli(name: &str, args: RootCauseArguments) -> Result<Self> {
         println!("Name?: {:?}", name);
-        let archive = create_archive(
-            &args.archive_dir.archive_dir,
-            "root_cause_corpus",
-            true,
-            true,
-        )
-        .map(ArchiveBuilder::from)?;
+        let archive = create_archive(&args.archive_dir.archive_dir, "root_cause", true, false)
+            .map(ArchiveBuilder::from)?;
 
         Ok(Self::new(
-            args.import_corpus,
+            args.inputs,
             archive,
+            args.archive_dir.archive_dir,
             args.prefix.prefix_input,
         ))
     }
 }
 
-pub fn run_fuzzer(emulator: Emulator, config: RootCauseConfig) -> Result<()> {
+pub fn run_fuzzer(
+    emulator: Emulator,
+    config: RootCauseConfig,
+    import_files: Vec<InputFile>,
+) -> Result<()> {
     Fuzzer::new(
         "root_cause".to_string(),
         None,
-        config.import_corpus,
+        vec![],
+        import_files,
         false,
         true,
         config.archive,

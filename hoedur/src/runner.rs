@@ -455,9 +455,27 @@ pub fn run(config: RunnerConfig) -> Result<()> {
 }
 
 fn run_root_cause(emulator: Emulator, config: RootCauseConfig) -> Result<()> {
-    println!("Root cause config: {:?}", config);
+    log::info!("Running initial inputs to create corpus");
 
-    root_cause::run_fuzzer(emulator, config)?;
+    let mut input_files = Vec::new();
+    for path in config.inputs.iter() {
+        let inputs = if path.is_file() {
+            vec![path]
+        } else {
+            bail!("{:?} is not a file", path);
+        };
+
+        for input_path in inputs {
+            match InputFile::read_from_path(&input_path) {
+                Ok(f) => input_files.push(f),
+                Err(_) => {
+                    log::warn!("Invalid input file path: {:?}", input_path)
+                }
+            }
+        }
+    }
+
+    root_cause::run_fuzzer(emulator, config, input_files)?;
     Ok(())
 }
 

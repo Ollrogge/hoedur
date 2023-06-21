@@ -41,6 +41,7 @@ use crate::{
     statistics::{Statistics, StatisticsInfo},
     stream::{ChronoStream, StreamIndex},
     stream_distribution::{StreamDistribution, StreamRandomDistribution},
+    CorpusEntryKind,
 };
 
 pub struct Fuzzer {
@@ -143,6 +144,7 @@ impl Fuzzer {
         name: String,
         seed: Option<u64>,
         import_corpus: Vec<PathBuf>,
+        import_files: Vec<InputFile>,
         statistics: bool,
         snapshots: bool,
         archive: ArchiveBuilder,
@@ -215,9 +217,22 @@ impl Fuzzer {
             }
         }
 
+        if !import_files.is_empty() {
+            log::info!("Adding crash input files to corpus");
+            for mut input in import_files {
+                input.replace_id(&InputFile::default());
+                fuzzer.run_fuzzer_input(input, &fuzzer.pre_fuzzing.clone(), true, false)?;
+            }
+        }
+
         // add empty input if corpus is empty
         if fuzzer.corpus.is_empty() {
-            fuzzer.run_fuzzer_input(InputFile::default(), &fuzzer.pre_fuzzing.clone(), false)?;
+            fuzzer.run_fuzzer_input(
+                InputFile::default(),
+                &fuzzer.pre_fuzzing.clone(),
+                false,
+                false,
+            )?;
         }
 
         Ok(fuzzer)
@@ -250,7 +265,7 @@ impl Fuzzer {
 
             // run input
             log::info!("Running input {} ...", id);
-            self.run_fuzzer_input(input, &self.pre_fuzzing.clone(), true)?;
+            self.run_fuzzer_input(input, &self.pre_fuzzing.clone(), true, false)?;
         }
 
         Ok(())
@@ -271,6 +286,22 @@ impl Fuzzer {
     }
 
     pub fn run_exploration(&mut self) -> Result<()> {
+        log::info!("Running exploration mode");
+        /*
+        while !EXIT.load(Ordering::Relaxed) {
+            // random input for mutation
+            let input = self
+                .next_input()
+                .context("Failed to get random input.")?
+                .fork();
+
+            //self.run_mutations(input, None, &self.pre_fuzzing.clone())?;
+            let res =
+                self.run_fuzzer_input(input.into_inner(), &self.pre_fuzzing.clone(), false, false)?;
+        }
+        */
+
+        self.run_plain_fuzzer()?;
         Ok(())
     }
 
@@ -387,7 +418,9 @@ impl Fuzzer {
             // - !MUTATION_STACKING: after each mutation (libfuzzer like)
             // - MUTATION_STACKING: after last mutation (afl like)
             if !MUTATION_STACKING || last_mutation {
-                if let Some(result) = self.run_fuzzer_input(input.into_inner(), snapshot, false)? {
+                if let Some(result) =
+                    self.run_fuzzer_input(input.into_inner(), snapshot, false, false)?
+                {
                     // no new coverage found => continue mutating input
                     input = result.as_fork();
 
@@ -418,6 +451,7 @@ impl Fuzzer {
         input: InputFile,
         snapshot: &EmulatorSnapshot,
         import: bool,
+        exploration: bool,
     ) -> Result<Option<InputResult>> {
         // emulator counts before execution
         let counts = EXECUTIONS_HISTORY.then(|| self.emulator.counts());
@@ -442,9 +476,13 @@ impl Fuzzer {
         }
 
         // process results
-        let result = self
-            .process_result(result, import)
-            .context("Process execution result")?;
+        let result = if exploration {
+            self.process_result_exploration(result)
+                .context("Process execution result exploration")?
+        } else {
+            self.process_result(result, import)
+                .context("Process execution result")?
+        };
 
         // restore emulator
         self.emulator.snapshot_restore(snapshot);
@@ -508,6 +546,8 @@ impl Fuzzer {
         } else {
             MutationContext::Stream(self.next_stream_random_distribution())
         };
+
+        println!("Mutate: {:?}", mutation_context);
 
         // mutate input stream
         if let Some(mutation) = self.mutate_stream(input, mutation_context)? {
@@ -643,6 +683,13 @@ impl Fuzzer {
             self.corpus.random_input().map(|info| info.result()).ok()
         })
         .with_context(|| format!("Failed to create {mutator:?} mutator"))
+    }
+
+    fn process_result_exploration(
+        &mut self,
+        result: ExecutionResult<InputFile>,
+    ) -> Result<Option<InputResult>> {
+        Ok(None)
     }
 
     fn process_result(

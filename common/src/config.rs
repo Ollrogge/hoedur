@@ -132,7 +132,7 @@ pub mod corpus {
 
     pub const SCHEDULE_INPUT: bool = true;
     pub const SCHEDULE_EXIT: bool = false;
-    pub const SCHEDULE_CRASH: bool = false;
+    pub const SCHEDULE_CRASH: bool = true;
     pub const SCHEDULE_TIMEOUT: bool = true;
 
     pub const SCALE_ENERGY: bool = true;
