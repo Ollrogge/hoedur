@@ -28,9 +28,10 @@ use modeling::{
 
 use crate::{
     archive::{create_archive, opt_archive},
-    cli,
+    cli::{self, RootCauseArguments},
     coverage::{run_cov, RunCovConfig},
     hoedur::{self, HoedurConfig},
+    root_cause::{self, RootCauseAnalysis, RootCauseConfig},
     Emulator,
 };
 
@@ -122,6 +123,7 @@ impl RunCorpusArchiveConfig {
 pub enum Command {
     Run(RunConfig),
     RunCov(RunCovConfig),
+    RootCause(RootCauseConfig),
     RunCorpusArchive(RunCorpusArchiveConfig),
     Fuzzer(HoedurConfig),
 }
@@ -135,6 +137,7 @@ impl Command {
                 archive.as_ref().cloned()
             }
             Command::Fuzzer(HoedurConfig { archive, .. }) => Some(archive.clone()),
+            _ => None,
         }
     }
 
@@ -143,7 +146,8 @@ impl Command {
             Command::Run(RunConfig { prefix_input, .. })
             | Command::RunCov(RunCovConfig { prefix_input, .. })
             | Command::RunCorpusArchive(RunCorpusArchiveConfig { prefix_input, .. })
-            | Command::Fuzzer(HoedurConfig { prefix_input, .. }) => prefix_input,
+            | Command::Fuzzer(HoedurConfig { prefix_input, .. })
+            | Command::RootCause(RootCauseConfig { prefix_input, .. }) => prefix_input,
         }
     }
 }
@@ -216,6 +220,9 @@ impl RunnerConfig {
                 Command::RunCorpusArchive(RunCorpusArchiveConfig::from_cli(&name, args)?)
             }
             cli::Command::Fuzz(args) => Command::Fuzzer(HoedurConfig::from_cli(name, args)?),
+            cli::Command::RootCause(args) => {
+                Command::RootCause(RootCauseConfig::from_cli(&name, args)?)
+            }
         };
 
         // modeling
@@ -440,9 +447,17 @@ pub fn run(config: RunnerConfig) -> Result<()> {
         }
         Command::RunCorpusArchive(corpus_config) => run_corpus_archive(emulator, corpus_config),
         Command::Fuzzer(hoedur_config) => hoedur::run_fuzzer(emulator, hoedur_config),
+        Command::RootCause(root_cause_config) => run_root_cause(emulator, root_cause_config),
     }?;
 
     log::info!("end of execution");
+    Ok(())
+}
+
+fn run_root_cause(emulator: Emulator, config: RootCauseConfig) -> Result<()> {
+    println!("Root cause config: {:?}", config);
+
+    root_cause::run_fuzzer(emulator, config)?;
     Ok(())
 }
 

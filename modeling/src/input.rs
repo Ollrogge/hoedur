@@ -56,6 +56,15 @@ impl Default for InputId {
     }
 }
 
+impl FromStr for InputId {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let id = s.parse::<usize>().context("Failed to parse input id")?;
+        Ok(InputId(id))
+    }
+}
+
 impl InputId {
     pub unsafe fn new(id: usize) -> Self {
         Self(id)

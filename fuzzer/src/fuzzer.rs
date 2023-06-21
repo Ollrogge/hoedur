@@ -270,6 +270,10 @@ impl Fuzzer {
         self.write_statistics()
     }
 
+    pub fn run_exploration(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     fn run_plain_fuzzer(&mut self) -> Result<()> {
         log::info!("Started plain fuzzing...");
         while !EXIT.load(Ordering::Relaxed) {

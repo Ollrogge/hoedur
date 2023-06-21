@@ -1,0 +1,258 @@
+diff --git a/.gitignore b/.gitignore
+index 5f791ae8..c44f4692 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,6 +1,7 @@
+ **/*.log
+ /corpus
+ /target
++/data
+ hoedur/completions/
+ qemu-sys/src/bindings/*/.commit-*
+ qemu-sys/src/bindings/release/*.rs
+diff --git a/fuzzer/src/corpus_archive.rs b/fuzzer/src/corpus_archive.rs
+index f94005c2..d42ce00a 100644
+--- a/fuzzer/src/corpus_archive.rs
++++ b/fuzzer/src/corpus_archive.rs
+@@ -105,6 +105,7 @@ impl<'a, R: Read> IntoInputFileIter<'a, R> for ArchiveIterator<'a, R, CorpusEntr
+     }
+ }
+ 
++#[derive(Clone, Debug)]
+ pub struct CorpusInputFile {
+     pub timestamp: Epoch,
+     pub category: InputCategory,
+diff --git a/fuzzer/src/fuzzer.rs b/fuzzer/src/fuzzer.rs
+index 02bd8b82..fdf0fb3f 100644
+--- a/fuzzer/src/fuzzer.rs
++++ b/fuzzer/src/fuzzer.rs
+@@ -270,6 +270,10 @@ impl Fuzzer {
+         self.write_statistics()
+     }
+ 
++    pub fn run_exploration(&mut self) -> Result<()> {
++        Ok(())
++    }
++
+     fn run_plain_fuzzer(&mut self) -> Result<()> {
+         log::info!("Started plain fuzzing...");
+         while !EXIT.load(Ordering::Relaxed) {
+diff --git a/hoedur-analyze/src/bin/hoedur-eval-crash.rs b/hoedur-analyze/src/bin/hoedur-eval-crash.rs
+index cebfd310..d37164cc 100644
+--- a/hoedur-analyze/src/bin/hoedur-eval-crash.rs
++++ b/hoedur-analyze/src/bin/hoedur-eval-crash.rs
+@@ -43,7 +43,7 @@ impl fmt::Display for CrashTime {
+ 
+ impl fmt::Display for CrashSource {
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+-        write!(f, "Input {}", self.input)?;
++        write!(f, "Input id {}", self.input)?;
+ 
+         if let Some(report) = &self.report {
+             write!(f, " ({report})")
+diff --git a/hoedur-analyze/src/bin/hoedur-reproducer.rs b/hoedur-analyze/src/bin/hoedur-reproducer.rs
+index 76d9edd7..61af1b72 100644
+--- a/hoedur-analyze/src/bin/hoedur-reproducer.rs
++++ b/hoedur-analyze/src/bin/hoedur-reproducer.rs
+@@ -12,6 +12,7 @@ use common::{
+ use fuzzer::{CorpusEntry, CorpusEntryKind};
+ use hoedur::coverage::CoverageReport;
+ use modeling::hardware::WriteTo;
++use modeling::input::InputId;
+ 
+ #[derive(Parser, Debug)]
+ #[command(name = "hoedur-reproducer")]
+@@ -29,6 +30,10 @@ pub struct Arguments {
+     /// Coverage report file
+     #[arg(long)]
+     pub report: PathBuf,
++
++    // Input id of a specific crash
++    #[arg(long)]
++    pub input_id: Option<InputId>,
+ }
+ 
+ fn main() -> Result<()> {
+@@ -120,6 +125,13 @@ fn main() -> Result<()> {
+ 
+     // write reproducer input files
+     for (crash_reason, input) in reproducers {
++        /*
++        if let Some(input_id) = opt.input_id {
++            if input.id() != input_id {
++                continue;
++            }
++        }
++        */
+         let path = opt.output.join(format!(
+             "input-{}-reproducer-{}.bin",
+             *input.id(),
+diff --git a/hoedur/src/cli.rs b/hoedur/src/cli.rs
+index 78301432..34ebd642 100644
+--- a/hoedur/src/cli.rs
++++ b/hoedur/src/cli.rs
+@@ -1,9 +1,9 @@
+-use std::path::PathBuf;
+-
+ use clap::{Args, Parser, Subcommand, ValueHint};
+ use common::{config::fuzzware, log::LOG_INFO};
+ use fuzzer::InputCategory;
+ use modeling::fuzzware::runner::FuzzwareInstallation;
++use modeling::input::InputId;
++use std::path::PathBuf;
+ 
+ const ARCHIVE: &str = "ARCHIVE";
+ const INPUT: &str = "INPUT";
+@@ -55,6 +55,10 @@ pub enum Command {
+     #[command(name = "run-cov")]
+     RunCov(RunCovArguments),
+ 
++    // Try to find the root cause for a crashing input
++    #[command(name = "root-cause")]
++    RootCause(RootCauseArguments),
++
+     /// Run inputs in corpus archive
+     #[command(name = "run-corpus")]
+     RunCorpusArchive(RunCorpusArchiveArguments),
+@@ -82,6 +86,19 @@ pub struct RunArguments {
+     pub bitmap_dir: Option<PathBuf>,
+ }
+ 
++#[derive(Args, Debug)]
++#[command(rename_all = "kebab-case")]
++pub struct RootCauseArguments {
++    #[command(flatten)]
++    pub prefix: ArgumentsPrefixInput,
++    /// Path of reproducer input file
++    #[arg(value_name = "INPUT_PATH", value_hint = ValueHint::AnyPath)]
++    pub import_corpus: Vec<PathBuf>,
++
++    #[command(flatten)]
++    pub archive_dir: ArchiveDir,
++}
++
+ #[derive(Args, Debug)]
+ #[command(rename_all = "kebab-case")]
+ pub struct RunCovArguments {
+diff --git a/hoedur/src/lib.rs b/hoedur/src/lib.rs
+index 2eeed5a4..a65a1b3c 100644
+--- a/hoedur/src/lib.rs
++++ b/hoedur/src/lib.rs
+@@ -2,6 +2,7 @@ mod archive;
+ pub mod cli;
+ pub mod coverage;
+ mod hoedur;
++mod root_cause;
+ mod runner;
+ 
+ use anyhow::Context;
+diff --git a/hoedur/src/runner.rs b/hoedur/src/runner.rs
+index c83c8277..a973633d 100644
+--- a/hoedur/src/runner.rs
++++ b/hoedur/src/runner.rs
+@@ -28,9 +28,10 @@ use modeling::{
+ 
+ use crate::{
+     archive::{create_archive, opt_archive},
+-    cli,
++    cli::{self, RootCauseArguments},
+     coverage::{run_cov, RunCovConfig},
+     hoedur::{self, HoedurConfig},
++    root_cause::{self, RootCauseAnalysis, RootCauseConfig},
+     Emulator,
+ };
+ 
+@@ -122,6 +123,7 @@ impl RunCorpusArchiveConfig {
+ pub enum Command {
+     Run(RunConfig),
+     RunCov(RunCovConfig),
++    RootCause(RootCauseConfig),
+     RunCorpusArchive(RunCorpusArchiveConfig),
+     Fuzzer(HoedurConfig),
+ }
+@@ -135,6 +137,7 @@ impl Command {
+                 archive.as_ref().cloned()
+             }
+             Command::Fuzzer(HoedurConfig { archive, .. }) => Some(archive.clone()),
++            _ => None,
+         }
+     }
+ 
+@@ -143,7 +146,8 @@ impl Command {
+             Command::Run(RunConfig { prefix_input, .. })
+             | Command::RunCov(RunCovConfig { prefix_input, .. })
+             | Command::RunCorpusArchive(RunCorpusArchiveConfig { prefix_input, .. })
+-            | Command::Fuzzer(HoedurConfig { prefix_input, .. }) => prefix_input,
++            | Command::Fuzzer(HoedurConfig { prefix_input, .. })
++            | Command::RootCause(RootCauseConfig { prefix_input, .. }) => prefix_input,
+         }
+     }
+ }
+@@ -216,6 +220,9 @@ impl RunnerConfig {
+                 Command::RunCorpusArchive(RunCorpusArchiveConfig::from_cli(&name, args)?)
+             }
+             cli::Command::Fuzz(args) => Command::Fuzzer(HoedurConfig::from_cli(name, args)?),
++            cli::Command::RootCause(args) => {
++                Command::RootCause(RootCauseConfig::from_cli(&name, args)?)
++            }
+         };
+ 
+         // modeling
+@@ -440,12 +447,20 @@ pub fn run(config: RunnerConfig) -> Result<()> {
+         }
+         Command::RunCorpusArchive(corpus_config) => run_corpus_archive(emulator, corpus_config),
+         Command::Fuzzer(hoedur_config) => hoedur::run_fuzzer(emulator, hoedur_config),
++        Command::RootCause(root_cause_config) => run_root_cause(emulator, root_cause_config),
+     }?;
+ 
+     log::info!("end of execution");
+     Ok(())
+ }
+ 
++fn run_root_cause(emulator: Emulator, config: RootCauseConfig) -> Result<()> {
++    println!("Root cause config: {:?}", config);
++
++    root_cause::run_fuzzer(emulator, config)?;
++    Ok(())
++}
++
+ fn run_inputs(mut emulator: Emulator, config: RunConfig) -> Result<()> {
+     // pre-input snapshot
+     let pre_input = emulator
+diff --git a/modeling/src/input.rs b/modeling/src/input.rs
+index 80ed07df..ce312ae8 100644
+--- a/modeling/src/input.rs
++++ b/modeling/src/input.rs
+@@ -56,6 +56,15 @@ impl Default for InputId {
+     }
+ }
+ 
++impl FromStr for InputId {
++    type Err = anyhow::Error;
++
++    fn from_str(s: &str) -> Result<Self> {
++        let id = s.parse::<usize>().context("Failed to parse input id")?;
++        Ok(InputId(id))
++    }
++}
++
+ impl InputId {
+     pub unsafe fn new(id: usize) -> Self {
+         Self(id)
+diff --git a/scripts/fuzz_common.py b/scripts/fuzz_common.py
+index d73044d9..a57e45cf 100755
+--- a/scripts/fuzz_common.py
++++ b/scripts/fuzz_common.py
+@@ -90,8 +90,10 @@ def run(cmd, log=None, logfile=None, timeout=None, **kwargs):
+ 
+     # log / logfile
+     if log == False:
+-        stdout = subprocess.DEVNULL
+-        stderr = subprocess.DEVNULL
++        #stdout = subprocess.DEVNULL
++        #stderr = subprocess.DEVNULL
++        stdout = sys.stdout
++        stderr = sys.stderr
+     elif log:
+         if logfile is not None:
+             log = logfile

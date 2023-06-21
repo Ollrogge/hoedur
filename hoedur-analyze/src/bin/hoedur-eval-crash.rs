@@ -43,7 +43,7 @@ impl fmt::Display for CrashTime {
 
 impl fmt::Display for CrashSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Input {}", self.input)?;
+        write!(f, "Input id {}", self.input)?;
 
         if let Some(report) = &self.report {
             write!(f, " ({report})")

@@ -105,6 +105,7 @@ impl<'a, R: Read> IntoInputFileIter<'a, R> for ArchiveIterator<'a, R, CorpusEntr
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct CorpusInputFile {
     pub timestamp: Epoch,
     pub category: InputCategory,

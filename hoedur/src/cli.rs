@@ -1,9 +1,9 @@
-use std::path::PathBuf;
-
 use clap::{Args, Parser, Subcommand, ValueHint};
 use common::{config::fuzzware, log::LOG_INFO};
 use fuzzer::InputCategory;
 use modeling::fuzzware::runner::FuzzwareInstallation;
+use modeling::input::InputId;
+use std::path::PathBuf;
 
 const ARCHIVE: &str = "ARCHIVE";
 const INPUT: &str = "INPUT";
@@ -55,6 +55,10 @@ pub enum Command {
     #[command(name = "run-cov")]
     RunCov(RunCovArguments),
 
+    // Try to find the root cause for a crashing input
+    #[command(name = "root-cause")]
+    RootCause(RootCauseArguments),
+
     /// Run inputs in corpus archive
     #[command(name = "run-corpus")]
     RunCorpusArchive(RunCorpusArchiveArguments),
@@ -80,6 +84,19 @@ pub struct RunArguments {
     /// Write coverage bitmap to dir
     #[arg(long, value_name = PATH, value_hint = ValueHint::DirPath, display_order = 720)]
     pub bitmap_dir: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+#[command(rename_all = "kebab-case")]
+pub struct RootCauseArguments {
+    #[command(flatten)]
+    pub prefix: ArgumentsPrefixInput,
+    /// Path of reproducer input file
+    #[arg(value_name = "INPUT_PATH", value_hint = ValueHint::AnyPath)]
+    pub import_corpus: Vec<PathBuf>,
+
+    #[command(flatten)]
+    pub archive_dir: ArchiveDir,
 }
 
 #[derive(Args, Debug)]

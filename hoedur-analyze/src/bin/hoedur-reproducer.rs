@@ -12,6 +12,7 @@ use common::{
 use fuzzer::{CorpusEntry, CorpusEntryKind};
 use hoedur::coverage::CoverageReport;
 use modeling::hardware::WriteTo;
+use modeling::input::InputId;
 
 #[derive(Parser, Debug)]
 #[command(name = "hoedur-reproducer")]
@@ -29,6 +30,10 @@ pub struct Arguments {
     /// Coverage report file
     #[arg(long)]
     pub report: PathBuf,
+
+    // Input id of a specific crash
+    #[arg(long)]
+    pub input_id: Option<InputId>,
 }
 
 fn main() -> Result<()> {
@@ -120,6 +125,13 @@ fn main() -> Result<()> {
 
     // write reproducer input files
     for (crash_reason, input) in reproducers {
+        /*
+        if let Some(input_id) = opt.input_id {
+            if input.id() != input_id {
+                continue;
+            }
+        }
+        */
         let path = opt.output.join(format!(
             "input-{}-reproducer-{}.bin",
             *input.id(),

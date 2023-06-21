@@ -80,8 +80,10 @@ def run(cmd, log=None, logfile=None, timeout=None, **kwargs):
 
     # log / logfile
     if log == False:
-        stdout = subprocess.DEVNULL
-        stderr = subprocess.DEVNULL
+        #stdout = subprocess.DEVNULL
+        #stderr = subprocess.DEVNULL
+        stdout = sys.stdout
+        stderr = sys.stderr
     elif log:
         if logfile is not None:
             log = logfile
