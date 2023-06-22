@@ -44,6 +44,7 @@ use crate::{
     CorpusEntryKind,
 };
 
+use common::FxHashSet;
 pub struct Fuzzer {
     archive: ArchiveBuilder,
     emulator: Emulator<InputFile>,
@@ -61,6 +62,7 @@ pub struct Fuzzer {
 
     mutation_log: Vec<Rc<MutationLog>>,
     random: Option<Random>,
+    exploration: FxHashSet<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -191,6 +193,7 @@ impl Fuzzer {
             .context("Failed to create a weighted stream select distribution.")?,
             mutation_log: vec![],
             random: None,
+            exploration: FxHashSet::default(),
         };
 
         // verify config distribution count matches enum len
@@ -275,7 +278,7 @@ impl Fuzzer {
         if self.snapshots {
             self.run_snapshot_fuzzer()?;
         } else {
-            self.run_plain_fuzzer()?;
+            self.run_plain_fuzzer(false)?;
         }
 
         if !ARCHIVE_EARLY_WRITE {
@@ -287,25 +290,11 @@ impl Fuzzer {
 
     pub fn run_exploration(&mut self) -> Result<()> {
         log::info!("Running exploration mode");
-        /*
-        while !EXIT.load(Ordering::Relaxed) {
-            // random input for mutation
-            let input = self
-                .next_input()
-                .context("Failed to get random input.")?
-                .fork();
-
-            //self.run_mutations(input, None, &self.pre_fuzzing.clone())?;
-            let res =
-                self.run_fuzzer_input(input.into_inner(), &self.pre_fuzzing.clone(), false, false)?;
-        }
-        */
-
-        self.run_plain_fuzzer()?;
+        self.run_plain_fuzzer(true)?;
         Ok(())
     }
 
-    fn run_plain_fuzzer(&mut self) -> Result<()> {
+    fn run_plain_fuzzer(&mut self, is_exploration: bool) -> Result<()> {
         log::info!("Started plain fuzzing...");
         while !EXIT.load(Ordering::Relaxed) {
             // random input for mutation
@@ -314,7 +303,7 @@ impl Fuzzer {
                 .context("Failed to get random input.")?
                 .fork();
 
-            self.run_mutations(input, None, &self.pre_fuzzing.clone())?;
+            self.run_mutations(input, None, &self.pre_fuzzing.clone(), is_exploration)?;
         }
 
         Ok(())
@@ -361,7 +350,12 @@ impl Fuzzer {
                 .context("Failed to create emulator snapshpot")?;
 
             for _ in 0..SNAPSHPOT_MUTATION_LIMIT {
-                if self.run_mutations(base_input.clone(), Some(base_input.file()), &snapshot)? {
+                if self.run_mutations(
+                    base_input.clone(),
+                    Some(base_input.file()),
+                    &snapshot,
+                    false,
+                )? {
                     break;
                 }
             }
@@ -378,6 +372,7 @@ impl Fuzzer {
         mut input: InputFork,
         base_input: Option<&InputFile>,
         snapshot: &EmulatorSnapshot,
+        is_exploration: bool,
     ) -> Result<bool> {
         log::debug!(
             "mutate new input forked from base input {:?}",
@@ -419,7 +414,7 @@ impl Fuzzer {
             // - MUTATION_STACKING: after last mutation (afl like)
             if !MUTATION_STACKING || last_mutation {
                 if let Some(result) =
-                    self.run_fuzzer_input(input.into_inner(), snapshot, false, false)?
+                    self.run_fuzzer_input(input.into_inner(), snapshot, false, is_exploration)?
                 {
                     // no new coverage found => continue mutating input
                     input = result.as_fork();
@@ -451,7 +446,7 @@ impl Fuzzer {
         input: InputFile,
         snapshot: &EmulatorSnapshot,
         import: bool,
-        exploration: bool,
+        is_exploration: bool,
     ) -> Result<Option<InputResult>> {
         // emulator counts before execution
         let counts = EXECUTIONS_HISTORY.then(|| self.emulator.counts());
@@ -476,7 +471,7 @@ impl Fuzzer {
         }
 
         // process results
-        let result = if exploration {
+        let result = if is_exploration {
             self.process_result_exploration(result)
                 .context("Process execution result exploration")?
         } else {
@@ -546,8 +541,6 @@ impl Fuzzer {
         } else {
             MutationContext::Stream(self.next_stream_random_distribution())
         };
-
-        println!("Mutate: {:?}", mutation_context);
 
         // mutate input stream
         if let Some(mutation) = self.mutate_stream(input, mutation_context)? {
@@ -689,6 +682,38 @@ impl Fuzzer {
         &mut self,
         result: ExecutionResult<InputFile>,
     ) -> Result<Option<InputResult>> {
+        if let StopReason::Crash { pc, ra, exception } = result.stop_reason {
+            self.exploration.insert(result.counts.basic_block());
+            println!(
+                "Found another crash: pc:{} ra:{} excp:{:?}, basic blocks: {}, input stream length: {} unique basic blocks: {}",
+                pc,
+                ra,
+                exception,
+                result.counts.basic_block(),
+                result.hardware.input.input_streams().len(),
+                self.exploration.len()
+            );
+        } else if let StopReason::EndOfInput = result.stop_reason {
+        }
+        //self.process_result(result, false)?;
+        /*
+        adding this makes no difference to basic blocks covered for crash
+        let corpus_result = self.corpus.process_result(
+            InputResult::new(
+                result.hardware.input,
+                epoch()?,
+                result.counts.basic_block(),
+                result.stop_reason,
+                result.hardware.access_log,
+            ),
+            self.emulator.get_coverage_bitmap(),
+            self.mutation_log
+                .iter()
+                .map(|log| &log.mutation.target().context),
+            true,
+        )?;
+        self.corpus.update();
+        */
         Ok(None)
     }
 
