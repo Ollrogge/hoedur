@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result};
 use archive::ArchiveBuilder;
 use emulator::Emulator;
-use fuzzer::Fuzzer;
+use fuzzer::{Fuzzer, Mode};
 use modeling::input::InputFile;
 
 use crate::{archive::create_archive, cli};

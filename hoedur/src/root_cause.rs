@@ -10,10 +10,11 @@ use archive::{
 use common::fs::{bufwriter, decoder};
 use core::arch;
 use fuzzer::Fuzzer;
-use fuzzer::{CorpusEntry, CorpusEntryKind, CorpusInputFile, IntoInputFileIter};
+use fuzzer::{CorpusEntry, CorpusEntryKind, CorpusInputFile, IntoInputFileIter, Mode};
 use modeling::hardware::{Input, WriteTo};
 use modeling::input::{InputFile, InputId};
 use nix::libc::creat;
+use qemu_rs::Address;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -68,7 +69,7 @@ pub fn run_fuzzer(
         config.archive,
         emulator,
     )?
-    .run_exploration()?;
+    .run_exploration(config.archive_dir)?;
 
     Ok(())
 }

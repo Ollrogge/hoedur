@@ -16,4 +16,5 @@ pub use crate::{
         write_input_file, CorpusEntry, CorpusEntryKind, CorpusInputFile, IntoInputFileIter,
     },
     fuzzer::Fuzzer,
+    fuzzer::Mode,
 };

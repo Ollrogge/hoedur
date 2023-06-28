@@ -12,6 +12,7 @@ members = [
     "qemu-build",
     "qemu-rs",
     "qemu-sys",
+    "root-cause"
 ]
 
 [profile.release]
