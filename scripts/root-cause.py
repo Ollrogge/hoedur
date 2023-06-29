@@ -20,7 +20,7 @@ def main():
 def _run(config_file, inputs, archive_dir):
     cmd = ['cargo', 'run' ,'--bin','hoedur-arm', '--']
     cmd += ['--import-config', config_file]
-    cmd += ['root-cause']
+    cmd += ['exploration']
     cmd += ['--archive-dir', archive_dir]
     cmd += ['--inputs', inputs]
 

@@ -1,4 +1,4 @@
-use crate::cli::RootCauseArguments;
+use crate::cli::ExplorationArguments;
 use crate::coverage::{CoverageReport, CrashReason};
 use crate::Emulator;
 use anyhow::{Context, Result};
@@ -18,14 +18,14 @@ use qemu_rs::Address;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
-pub struct RootCauseConfig {
+pub struct ExplorationConfig {
     pub inputs: Vec<PathBuf>,
     pub archive: ArchiveBuilder,
     pub archive_dir: PathBuf,
     pub prefix_input: Vec<PathBuf>,
 }
 
-impl RootCauseConfig {
+impl ExplorationConfig {
     pub fn new(
         inputs: Vec<PathBuf>,
         archive: ArchiveBuilder,
@@ -40,7 +40,7 @@ impl RootCauseConfig {
         }
     }
 
-    pub fn from_cli(name: &str, args: RootCauseArguments) -> Result<Self> {
+    pub fn from_cli(name: &str, args: ExplorationArguments) -> Result<Self> {
         println!("Name?: {:?}", name);
         let archive = create_archive(&args.archive_dir.archive_dir, "root_cause", true, false)
             .map(ArchiveBuilder::from)?;
@@ -56,7 +56,7 @@ impl RootCauseConfig {
 
 pub fn run_fuzzer(
     emulator: Emulator,
-    config: RootCauseConfig,
+    config: ExplorationConfig,
     import_files: Vec<InputFile>,
 ) -> Result<()> {
     Fuzzer::new(

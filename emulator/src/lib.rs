@@ -39,6 +39,7 @@ use serde::{Deserialize, Serialize};
 use variant_count::VariantCount;
 
 pub use qemu_rs::Address;
+use qemu_rs::Register;
 
 mod arch;
 mod counts;
@@ -533,6 +534,8 @@ impl<I: Input + Debug> QemuCallback for EmulatorData<I> {
     }
 
     fn on_instruction(&mut self, pc: Address) -> Result<()> {
+        let sp = qcontrol().register(Register::SP);
+        println!("Register: {:?}", sp);
         Self::on_instruction(self, pc)
     }
 

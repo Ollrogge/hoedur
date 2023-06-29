@@ -56,8 +56,8 @@ pub enum Command {
     RunCov(RunCovArguments),
 
     // Try to find the root cause for a crashing input
-    #[command(name = "root-cause")]
-    RootCause(RootCauseArguments),
+    #[command(name = "exploration")]
+    RootCause(ExplorationArguments),
 
     /// Run inputs in corpus archive
     #[command(name = "run-corpus")]
@@ -88,7 +88,7 @@ pub struct RunArguments {
 
 #[derive(Args, Debug)]
 #[command(rename_all = "kebab-case")]
-pub struct RootCauseArguments {
+pub struct ExplorationArguments {
     #[command(flatten)]
     pub prefix: ArgumentsPrefixInput,
     /// Path of reproducer input file

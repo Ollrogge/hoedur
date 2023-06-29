@@ -28,10 +28,10 @@ use modeling::{
 
 use crate::{
     archive::{create_archive, opt_archive},
-    cli::{self, RootCauseArguments},
+    cli::{self},
     coverage::{run_cov, RunCovConfig},
+    exploration::{self, ExplorationConfig, RootCauseAnalysis},
     hoedur::{self, HoedurConfig},
-    root_cause::{self, RootCauseAnalysis, RootCauseConfig},
     Emulator,
 };
 
@@ -123,7 +123,7 @@ impl RunCorpusArchiveConfig {
 pub enum Command {
     Run(RunConfig),
     RunCov(RunCovConfig),
-    RootCause(RootCauseConfig),
+    RootCause(ExplorationConfig),
     RunCorpusArchive(RunCorpusArchiveConfig),
     Fuzzer(HoedurConfig),
 }
@@ -147,7 +147,7 @@ impl Command {
             | Command::RunCov(RunCovConfig { prefix_input, .. })
             | Command::RunCorpusArchive(RunCorpusArchiveConfig { prefix_input, .. })
             | Command::Fuzzer(HoedurConfig { prefix_input, .. })
-            | Command::RootCause(RootCauseConfig { prefix_input, .. }) => prefix_input,
+            | Command::RootCause(ExplorationConfig { prefix_input, .. }) => prefix_input,
         }
     }
 }
@@ -221,7 +221,7 @@ impl RunnerConfig {
             }
             cli::Command::Fuzz(args) => Command::Fuzzer(HoedurConfig::from_cli(name, args)?),
             cli::Command::RootCause(args) => {
-                Command::RootCause(RootCauseConfig::from_cli(&name, args)?)
+                Command::RootCause(ExplorationConfig::from_cli(&name, args)?)
             }
         };
 
@@ -447,14 +447,14 @@ pub fn run(config: RunnerConfig) -> Result<()> {
         }
         Command::RunCorpusArchive(corpus_config) => run_corpus_archive(emulator, corpus_config),
         Command::Fuzzer(hoedur_config) => hoedur::run_fuzzer(emulator, hoedur_config),
-        Command::RootCause(root_cause_config) => run_root_cause(emulator, root_cause_config),
+        Command::RootCause(root_cause_config) => run_exploration(emulator, root_cause_config),
     }?;
 
     log::info!("end of execution");
     Ok(())
 }
 
-fn run_root_cause(emulator: Emulator, config: RootCauseConfig) -> Result<()> {
+fn run_exploration(emulator: Emulator, config: ExplorationConfig) -> Result<()> {
     log::info!("Running initial inputs to create corpus");
 
     let mut input_files = Vec::new();
@@ -475,7 +475,7 @@ fn run_root_cause(emulator: Emulator, config: RootCauseConfig) -> Result<()> {
         }
     }
 
-    root_cause::run_fuzzer(emulator, config, input_files)?;
+    exploration::run_fuzzer(emulator, config, input_files)?;
     Ok(())
 }
 

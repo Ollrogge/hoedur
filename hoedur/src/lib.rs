@@ -1,8 +1,8 @@
 mod archive;
 pub mod cli;
 pub mod coverage;
+mod exploration;
 mod hoedur;
-mod root_cause;
 mod runner;
 
 use anyhow::Context;
