@@ -98,7 +98,6 @@ impl fmt::Display for CoverageReport {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InputCoverage {
     id: InputId,
-    input: InputFile,
     timestamp: Option<Epoch>,
     stop_reason: StopReason,
     bugs: Option<Vec<Bug>>,
@@ -209,7 +208,6 @@ impl CoverageReport {
 impl InputCoverage {
     pub fn new(
         id: InputId,
-        input: InputFile,
         timestamp: Epoch,
         stop_reason: StopReason,
         bugs: Option<Vec<Bug>>,
@@ -217,7 +215,6 @@ impl InputCoverage {
     ) -> Self {
         Self {
             id,
-            input,
             timestamp: Some(timestamp),
             stop_reason,
             bugs,
@@ -228,7 +225,6 @@ impl InputCoverage {
     pub fn empty_input(coverage: FxHashSet<Address>) -> Self {
         Self {
             id: unsafe { InputId::new(0) },
-            input: InputFile::default(),
             timestamp: None,
             stop_reason: StopReason::EndOfInput,
             bugs: None,
@@ -246,10 +242,6 @@ impl InputCoverage {
 
     pub fn stop_reason(&self) -> &StopReason {
         &self.stop_reason
-    }
-
-    pub fn input(&self) -> InputFile {
-        self.input.clone()
     }
 
     pub fn bugs(&self) -> Option<&[Bug]> {
@@ -413,7 +405,7 @@ fn run_corpus_archive(
             write_input_file(
                 &mut archive.borrow_mut(),
                 &InputResult::new(
-                    result.hardware.input.clone(),
+                    result.hardware.input,
                     timestamp,
                     result.counts.basic_block(),
                     result.stop_reason.clone(),
@@ -425,7 +417,6 @@ fn run_corpus_archive(
         // add coverage
         report.add_coverage(InputCoverage::new(
             input_id,
-            result.hardware.input,
             relative_timestamp,
             result.stop_reason,
             result.bugs,
