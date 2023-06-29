@@ -155,7 +155,6 @@ impl Fuzzer {
         name: String,
         seed: Option<u64>,
         import_corpus: Vec<PathBuf>,
-        import_files: Vec<InputFile>,
         statistics: bool,
         snapshots: bool,
         archive: ArchiveBuilder,
@@ -230,14 +229,6 @@ impl Fuzzer {
             }
         }
 
-        if !import_files.is_empty() {
-            log::info!("Adding crash input files to corpus");
-            for mut input in import_files {
-                input.replace_id(&InputFile::default());
-                fuzzer.run_fuzzer_input(input, &fuzzer.pre_fuzzing.clone(), true)?;
-            }
-        }
-
         // add empty input if corpus is empty
         if fuzzer.corpus.is_empty() {
             fuzzer.run_fuzzer_input(InputFile::default(), &fuzzer.pre_fuzzing.clone(), false)?;
@@ -293,8 +284,8 @@ impl Fuzzer {
         self.write_statistics()
     }
 
-    pub fn run_exploration(&mut self, archive_dir: PathBuf) -> Result<()> {
-        self.exploration_mode = Some(ExplorationMode::new(archive_dir)?);
+    pub fn run_exploration(&mut self, archive: ArchiveBuilder) -> Result<()> {
+        self.exploration_mode = Some(ExplorationMode::new(archive)?);
         self.mode = Mode::EXPLORATION;
         log::info!("Running exploration mode");
         self.run_plain_fuzzer()?;

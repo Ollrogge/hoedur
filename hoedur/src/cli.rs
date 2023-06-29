@@ -91,11 +91,12 @@ pub struct RunArguments {
 pub struct ExplorationArguments {
     #[command(flatten)]
     pub prefix: ArgumentsPrefixInput,
-    /// Path of reproducer input file
-    #[arg(long, value_name = "INPUT_PATH", value_hint = ValueHint::AnyPath)]
-    pub inputs: Vec<PathBuf>,
 
-    /// Path to archive directory
+    /// Path to the corpus archives files / corpus dir
+    #[arg(long, value_name = "PATH|ARCHIVE", value_hint = ValueHint::AnyPath, display_order = 24)]
+    pub import_corpus: Vec<PathBuf>,
+
+    /// Path to exploration archive to be created
     #[command(flatten)]
     pub archive_dir: ArchiveDir,
 }

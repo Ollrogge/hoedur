@@ -19,57 +19,48 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct ExplorationConfig {
-    pub inputs: Vec<PathBuf>,
     pub archive: ArchiveBuilder,
-    pub archive_dir: PathBuf,
+    pub import_corpus: Vec<PathBuf>,
     pub prefix_input: Vec<PathBuf>,
 }
 
 impl ExplorationConfig {
     pub fn new(
-        inputs: Vec<PathBuf>,
         archive: ArchiveBuilder,
-        archive_dir: PathBuf,
+        import_corpus: Vec<PathBuf>,
         prefix_input: Vec<PathBuf>,
     ) -> Self {
         Self {
-            inputs,
             archive,
-            archive_dir,
+            import_corpus,
             prefix_input,
         }
     }
 
     pub fn from_cli(name: &str, args: ExplorationArguments) -> Result<Self> {
         println!("Name?: {:?}", name);
-        let archive = create_archive(&args.archive_dir.archive_dir, "root_cause", true, false)
+        let archive = create_archive(&args.archive_dir.archive_dir, "exploration", true, false)
             .map(ArchiveBuilder::from)?;
 
         Ok(Self::new(
-            args.inputs,
             archive,
-            args.archive_dir.archive_dir,
+            args.import_corpus,
             args.prefix.prefix_input,
         ))
     }
 }
 
-pub fn run_fuzzer(
-    emulator: Emulator,
-    config: ExplorationConfig,
-    import_files: Vec<InputFile>,
-) -> Result<()> {
+pub fn run_fuzzer(emulator: Emulator, config: ExplorationConfig) -> Result<()> {
     Fuzzer::new(
         "root_cause".to_string(),
         None,
-        vec![],
-        import_files,
+        config.import_corpus,
         false,
         true,
-        config.archive,
+        config.archive.clone(),
         emulator,
     )?
-    .run_exploration(config.archive_dir)?;
+    .run_exploration(config.archive)?;
 
     Ok(())
 }

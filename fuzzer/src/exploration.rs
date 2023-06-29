@@ -55,12 +55,7 @@ pub struct ExplorationMode {
 }
 
 impl ExplorationMode {
-    pub fn new(archive_dir: PathBuf) -> Result<Self> {
-        let archive =
-            create_archive(&archive_dir, "exploration", true, false).map(ArchiveBuilder::from)?;
-
-        write_config(&mut archive.borrow_mut())?;
-
+    pub fn new(archive: ArchiveBuilder) -> Result<Self> {
         Ok(ExplorationMode {
             archive,
             unique_crashes: FxHashSet::default(),

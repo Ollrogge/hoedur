@@ -447,33 +447,12 @@ pub fn run(config: RunnerConfig) -> Result<()> {
         }
         Command::RunCorpusArchive(corpus_config) => run_corpus_archive(emulator, corpus_config),
         Command::Fuzzer(hoedur_config) => hoedur::run_fuzzer(emulator, hoedur_config),
-        Command::RootCause(root_cause_config) => run_exploration(emulator, root_cause_config),
+        Command::RootCause(exploration_config) => {
+            exploration::run_fuzzer(emulator, exploration_config)
+        }
     }?;
 
     log::info!("end of execution");
-    Ok(())
-}
-
-fn run_exploration(emulator: Emulator, config: ExplorationConfig) -> Result<()> {
-    let mut input_files = Vec::new();
-    for path in config.inputs.iter() {
-        let inputs = if path.is_file() {
-            vec![path]
-        } else {
-            bail!("{:?} is not a file", path);
-        };
-
-        for input_path in inputs {
-            match InputFile::read_from_path(&input_path) {
-                Ok(f) => input_files.push(f),
-                Err(_) => {
-                    log::warn!("Invalid input file path: {:?}", input_path)
-                }
-            }
-        }
-    }
-
-    exploration::run_fuzzer(emulator, config, input_files)?;
     Ok(())
 }
 
