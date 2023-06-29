@@ -5,7 +5,7 @@ use std::{
     vec,
 };
 
-use root_cause::exploration::{ExplorationCoverage, ExplorationMode};
+use crate::exploration::{ExplorationCoverage, ExplorationMode};
 
 use anyhow::{Context, Result};
 use archive::{

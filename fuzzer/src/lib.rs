@@ -3,6 +3,7 @@ mod corpus;
 mod corpus_archive;
 pub mod coverage;
 mod dict;
+mod exploration;
 mod fuzzer;
 mod mutation;
 pub mod statistics;

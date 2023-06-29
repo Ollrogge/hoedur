@@ -30,7 +30,7 @@ use crate::{
     archive::{create_archive, opt_archive},
     cli::{self},
     coverage::{run_cov, RunCovConfig},
-    exploration::{self, ExplorationConfig, RootCauseAnalysis},
+    exploration::{self, ExplorationConfig},
     hoedur::{self, HoedurConfig},
     Emulator,
 };

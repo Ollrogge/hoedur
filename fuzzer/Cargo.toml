@@ -16,7 +16,8 @@ derive_more = { version = "0.99.17", default-features = false, features = [
     "add",
     "add_assign",
 ] }
-root-cause = {path = "../root-cause"}
+root-cause-analysis = {path = "../root-cause-analysis"}
+qemu-rs = {path = "../qemu-rs"}
 emulator = { path = "../emulator" }
 enum-kinds = "0.5.1"
 enum_dispatch = "0.3.11"
