@@ -455,8 +455,6 @@ pub fn run(config: RunnerConfig) -> Result<()> {
 }
 
 fn run_exploration(emulator: Emulator, config: ExplorationConfig) -> Result<()> {
-    log::info!("Running initial inputs to create corpus");
-
     let mut input_files = Vec::new();
     for path in config.inputs.iter() {
         let inputs = if path.is_file() {

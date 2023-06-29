@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use archive::tar::write_file;
-use archive::{create_archive, tar::write_file_raw, Archive, ArchiveBuilder};
+use archive::{create_archive, tar::write_file_raw, write_config, Archive, ArchiveBuilder};
 use modeling::hardware::WriteTo;
 use modeling::input::InputFile;
 use qemu_rs::Address;
@@ -49,25 +48,23 @@ impl ExplorationCoverage {
 }
 
 pub struct ExplorationMode {
-    crash_archive: ArchiveBuilder,
-    none_crash_archive: ArchiveBuilder,
+    archive: ArchiveBuilder,
     unique_crashes: FxHashSet<u64>,
-    unique_none_crashes: FxHashSet<u64>,
+    // not crashing
+    unique_inputs: FxHashSet<u64>,
 }
 
 impl ExplorationMode {
     pub fn new(archive_dir: PathBuf) -> Result<Self> {
-        let crash_archive = create_archive(&archive_dir, "exploration_crash", true, true)
-            .map(ArchiveBuilder::from)?;
+        let archive =
+            create_archive(&archive_dir, "exploration", true, false).map(ArchiveBuilder::from)?;
 
-        let not_crash_archive = create_archive(&archive_dir, "exploration_not_crash", true, false)
-            .map(ArchiveBuilder::from)?;
+        write_config(&mut archive.borrow_mut())?;
 
         Ok(ExplorationMode {
-            crash_archive,
-            none_crash_archive: not_crash_archive,
+            archive,
             unique_crashes: FxHashSet::default(),
-            unique_none_crashes: FxHashSet::default(),
+            unique_inputs: FxHashSet::default(),
         })
     }
 
@@ -79,8 +76,8 @@ impl ExplorationMode {
             );
 
             return write_file_raw(
-                &mut self.crash_archive.borrow_mut(),
-                &format!("crashes/input-{}.bin", f.id()),
+                &mut self.archive.borrow_mut(),
+                &format!("crash/input-{}.bin", f.id()),
                 f.write_size()?,
                 0,
                 |writer| f.write_to(writer),
@@ -91,26 +88,23 @@ impl ExplorationMode {
         Ok(())
     }
 
-    pub fn save_none_crash(&mut self, cov: ExplorationCoverage, f: &InputFile) -> Result<()> {
+    pub fn save_input(&mut self, cov: ExplorationCoverage, f: &InputFile) -> Result<()> {
         // todo find a better way to reduce crashing input amount
         // check how AFL does it
-        if self.unique_crashes.len() * 2 < self.unique_none_crashes.len() {
+        if self.unique_crashes.len() * 2 < self.unique_inputs.len() {
             return Ok(());
         }
-        if self.unique_none_crashes.insert(cov.get_hash()) {
+        if self.unique_inputs.insert(cov.get_hash()) {
             return write_file_raw(
-                &mut self.none_crash_archive.borrow_mut(),
-                &format!("not_crashes/input-{}.bin", f.id()),
+                &mut self.archive.borrow_mut(),
+                &format!("input/input-{}.bin", f.id()),
                 f.write_size()?,
                 0,
                 |writer| f.write_to(writer),
             )
             .context("Failed to save non crashing input");
         }
-        log::info!(
-            "None crashing archive len: {}",
-            self.unique_none_crashes.len()
-        );
+        log::info!("None crashing archive len: {}", self.unique_inputs.len());
         Ok(())
     }
 }

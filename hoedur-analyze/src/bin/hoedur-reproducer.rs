@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use archive::Archive;
+use archive::{tar::write_file_raw, Archive, ArchiveBuilder};
 use clap::Parser;
 use common::{
     fs::{bufwriter, decoder},
@@ -125,13 +125,6 @@ fn main() -> Result<()> {
 
     // write reproducer input files
     for (crash_reason, input) in reproducers {
-        /*
-        if let Some(input_id) = opt.input_id {
-            if input.id() != input_id {
-                continue;
-            }
-        }
-        */
         let path = opt.output.join(format!(
             "input-{}-reproducer-{}.bin",
             *input.id(),

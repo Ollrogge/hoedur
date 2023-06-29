@@ -725,7 +725,7 @@ impl Fuzzer {
                 self.exploration_mode
                     .as_mut()
                     .unwrap()
-                    .save_none_crash(exploration_cov, &result.hardware.input)?;
+                    .save_input(exploration_cov, &result.hardware.input)?;
             }
         }
         Ok(None)

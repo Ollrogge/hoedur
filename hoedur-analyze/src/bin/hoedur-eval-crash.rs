@@ -60,6 +60,7 @@ fn main() -> Result<()> {
     log::trace!("Args: {:#?}", opt);
 
     let mut crashes = FxHashMap::default();
+    let mut shortest_input_for_crash = FxHashMap::default();
 
     for path in opt.reports {
         log::info!("Loading coverage report {:?} ...", path);
@@ -96,7 +97,7 @@ fn main() -> Result<()> {
                     .map(|filename| filename.to_string_lossy().to_string()),
             };
 
-            match crashes.entry(reason) {
+            match crashes.entry(reason.clone()) {
                 Entry::Vacant(entry) => {
                     entry.insert(CrashTime {
                         time,
@@ -108,6 +109,18 @@ fn main() -> Result<()> {
                     if time < crash_time.time {
                         crash_time.time = time;
                         crash_time.source = source();
+                    }
+                }
+            }
+
+            match shortest_input_for_crash.entry(reason) {
+                Entry::Vacant(entry) => {
+                    entry.insert(input.input());
+                }
+                Entry::Occupied(mut entry) => {
+                    let reproducer = entry.get_mut();
+                    if input.input().len() < reproducer.len() {
+                        *reproducer = input.input();
                     }
                 }
             }
@@ -123,7 +136,13 @@ fn main() -> Result<()> {
         serde_yaml::to_writer(io::stdout(), &crashes).context("Failed to serialize crashes")
     } else {
         for (crash, crash_time) in crashes {
-            println!("{} : {:x?} :\t {}", crash_time, crash, crash_time.source);
+            println!(
+                "{} : {:x?} :\t {}, shortest input id: {}",
+                crash_time,
+                crash,
+                crash_time.source,
+                shortest_input_for_crash.get(&crash).unwrap().id()
+            );
         }
 
         Ok(())
