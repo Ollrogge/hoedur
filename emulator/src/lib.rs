@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use arch::{ArchEmulator, ArchEmulatorSnapshot};
+use clap::ValueEnum;
 use common::{
     config::emulator::FIX_EXCEPTION_EDGE, exit::EXIT, file_storage::FileStorage, fs::bufwriter,
     FxHashSet,
@@ -20,7 +21,7 @@ use debug::{CustomHook, EmulatorDebugSnapshot};
 use enum_index_derive::EnumIndex;
 use frametracer::{
     symbolizer::{Object, Symbolizer},
-    AccessTarget, AccessType,
+    AccessTarget, AccessType, Trace,
 };
 use hooks::exit::ExitHook;
 use interrupt::{EmulatorInterruptConfig, EmulatorInterruptConfigSnapshot, TargetInterruptConfig};
@@ -48,6 +49,7 @@ mod fuzzware;
 mod hooks;
 mod interrupt;
 mod limits;
+mod root_cause_trace;
 
 pub mod archive;
 
@@ -59,6 +61,13 @@ pub use self::{counts::EmulatorCounts, hooks::custom::Bug, limits::EmulatorLimit
 use self::{debug::EmulatorDebugData, hooks::debug::DebugHook, limits::TargetLimits};
 
 pub type CoverageLog = FxHashSet<Address>;
+
+#[derive(ValueEnum, Debug, Default, Clone, Copy)]
+pub enum TraceType {
+    #[default]
+    Normal,
+    RootCause,
+}
 
 #[derive(Debug)]
 pub struct ExecutionResult<I: Input + Debug> {
@@ -534,8 +543,6 @@ impl<I: Input + Debug> QemuCallback for EmulatorData<I> {
     }
 
     fn on_instruction(&mut self, pc: Address) -> Result<()> {
-        let sp = qcontrol().register(Register::SP);
-        println!("Register: {:?}", sp);
         Self::on_instruction(self, pc)
     }
 
@@ -853,6 +860,7 @@ impl<I: Input + Debug> Emulator<I> {
         let debug_data = EmulatorDebugData::new(
             debug.enabled,
             debug.trace,
+            debug.trace_type,
             debug.coverage,
             symbolizer,
             exit_hooks,
@@ -978,6 +986,7 @@ impl EmulatorConfig {
 pub struct EmulatorDebugConfig {
     enabled: bool,
     trace: bool,
+    trace_type: TraceType,
     trace_file: Option<PathBuf>,
     coverage: bool,
     hooks: Vec<PathBuf>,
@@ -987,6 +996,7 @@ impl EmulatorDebugConfig {
     pub fn new(
         enabled: bool,
         trace: bool,
+        trace_type: TraceType,
         trace_file: Option<PathBuf>,
         coverage: bool,
         hooks: Vec<PathBuf>,
@@ -994,6 +1004,7 @@ impl EmulatorDebugConfig {
         Self {
             enabled,
             trace,
+            trace_type,
             trace_file,
             coverage,
             hooks,

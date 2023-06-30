@@ -23,10 +23,11 @@ use crate::{
         custom::{Bug, HookRuntime, BUGS, STOP},
         debug::DebugHook,
     },
+    root_cause_trace::RootCauseTrace,
     StopReason,
 };
 
-use super::{EmulatorData, ExitHook};
+use super::{EmulatorData, ExitHook, TraceType};
 
 pub(crate) fn ra() -> Address {
     use qemu_rs::{qcontrol, Register};
@@ -47,12 +48,14 @@ pub enum CustomHook {
 pub(crate) struct EmulatorDebugData {
     enabled: bool,
     trace: bool,
+    trace_type: TraceType,
     trace_file: Option<AutoFinishEncoder<'static, BufWriter<File>>>,
     coverage: Option<FxHashSet<Address>>,
     exit_hooks: FxHashMap<Address, Arc<ExitHook>>,
     debug_hooks: FxHashMap<Address, Arc<DebugHook>>,
     custom_hooks: Option<HookRuntime>,
     output_buffer: String,
+    root_cause_trace: RootCauseTrace,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +82,7 @@ impl EmulatorDebugData {
     pub(crate) fn new(
         enabled: bool,
         trace: bool,
+        trace_type: TraceType,
         coverage: bool,
         symbolizer: Symbolizer,
         exit_hooks: Vec<ExitHook>,
@@ -168,12 +172,14 @@ impl EmulatorDebugData {
         Ok(Self {
             enabled,
             trace,
+            trace_type,
             trace_file,
             coverage: coverage.then(FxHashSet::default),
             exit_hooks,
             debug_hooks,
             custom_hooks,
             output_buffer: String::new(),
+            root_cause_trace: RootCauseTrace::new(),
         })
     }
 
@@ -292,6 +298,10 @@ impl EmulatorDebugData {
         self.enabled
     }
 
+    pub(crate) fn trace_type(&self) -> TraceType {
+        self.trace_type
+    }
+
     pub(crate) fn trace_mode(&self) -> bool {
         self.trace
     }
@@ -317,6 +327,15 @@ impl EmulatorDebugData {
 
     pub fn snapshot_restore(&mut self, snapshot: &EmulatorDebugSnapshot) {
         self.output_buffer = snapshot.output_buffer.clone();
+    }
+
+    pub fn on_instruction(&mut self, pc: u32) -> Result<()> {
+        match self.trace_type {
+            TraceType::Normal => self
+                .write_event(TraceEvent::Instruction(Instruction { pc }))
+                .context("trace instruction"),
+            TraceType::RootCause => self.root_cause_trace.on_instruction(pc),
+        }
     }
 }
 
@@ -362,10 +381,9 @@ impl<I: Input + Debug> EmulatorData<I> {
                     .context("call custom instruction hook")?;
             }
 
+            self.debug.on_instruction(pc)
+
             // add basic block to trace
-            self.debug
-                .write_event(TraceEvent::Instruction(Instruction { pc }))
-                .context("trace instruction")
         } else {
             Ok(())
         }

@@ -1,5 +1,6 @@
 use clap::{Args, Parser, Subcommand, ValueHint};
 use common::{config::fuzzware, log::LOG_DEBUG, log::LOG_INFO};
+use emulator::TraceType;
 use fuzzer::InputCategory;
 use modeling::fuzzware::runner::FuzzwareInstallation;
 use modeling::input::InputId;
@@ -267,6 +268,9 @@ pub struct ArgumentsDebug {
     /// Hook every basic-block (huge performance impact)
     #[arg(long, display_order = 720)]
     pub trace: bool,
+
+    #[arg(long, value_enum, default_value_t = TraceType::Normal)]
+    pub trace_type: TraceType,
 
     /// Write trace to file path
     #[arg(

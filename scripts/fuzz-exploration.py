@@ -19,6 +19,10 @@ def main():
 def _run(crash_corpus, archive):
     cmd = ['cargo', 'run' ,'--bin','hoedur-arm', '--']
     cmd += ['--import-config', crash_corpus]
+   # cmd += ['--help']
+    cmd += ['--debug', '--trace']
+    cmd += ['--trace-type', 'root-cause']
+    #cmd += ['--hook', './root-cause-analysis/hooks/test.rs']
     cmd += ['exploration']
     cmd += ['--archive-dir', archive]
     cmd += ['--import-corpus', crash_corpus]

@@ -203,6 +203,7 @@ impl RunnerConfig {
         let debug = EmulatorDebugConfig::new(
             debug_enabled,
             trace,
+            args.debug.trace_type,
             args.debug.trace_file,
             coverage,
             args.debug.hooks,

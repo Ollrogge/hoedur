@@ -615,6 +615,7 @@ dependencies = [
  "archive",
  "bincode",
  "bitflags 2.2.1",
+ "clap 4.2.7",
  "common",
  "derive_more",
  "endiannezz",

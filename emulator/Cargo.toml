@@ -13,6 +13,7 @@ archive = { path = "../archive" }
 bincode = "1.3.3"
 bitflags = "2.2.1"
 common = { path = "../common" }
+clap = { version = "4.2.7", features = ["derive", "wrap_help"] }
 derive_more = { version = "0.99.17", default-features = false, features = [
     "add",
     "add_assign",
