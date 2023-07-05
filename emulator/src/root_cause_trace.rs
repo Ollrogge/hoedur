@@ -2,11 +2,14 @@ use anyhow::{Context, Result};
 use common::{fs::encoder, hashbrown::hash_map::Entry, FxHashMap, FxHashSet};
 use rune::ast::In;
 use serde::Serialize;
+use std::cmp::min;
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::{
     fmt::{self, Debug},
     fs::File,
     io::{BufWriter, Write},
+    path::Path,
     path::PathBuf,
     sync::{atomic::Ordering, Arc},
 };
@@ -14,7 +17,9 @@ use zstd::stream::AutoFinishEncoder;
 
 use qemu_rs::{qcontrol, register, Address, Register};
 
-use trace_analysis::trace::{SerializedInstruction, SerializedTrace};
+use trace_analysis::trace::{self, SerializedEdge, SerializedInstruction, SerializedTrace};
+
+use crate::StopReason;
 
 #[derive(Serialize)]
 enum EdgeType {
@@ -31,6 +36,12 @@ enum EdgeType {
 struct Edge {
     from: Address,
     to: Address,
+}
+
+impl Edge {
+    pub fn to_serialized_edge(&self, count: u64) -> SerializedEdge {
+        SerializedEdge::new(self.from as usize, self.to as usize, count as usize)
+    }
 }
 
 #[derive(Serialize)]
@@ -56,16 +67,18 @@ impl MemoryData {
     }
 }
 
+type Registers = [Value; Register::AMOUNT];
+
 #[derive(Serialize)]
 struct InstructionData {
     /// how often instruction was called
-    count: u64,
+    count: usize,
     mnemonic: String,
     /// min values for each register
-    min_vals: [Value; Register::AMOUNT],
+    min_vals: Registers,
     /// max values for each register
-    max_vals: [Value; Register::AMOUNT],
-    last_vals: [Value; Register::AMOUNT],
+    max_vals: Registers,
+    last_vals: Registers,
     last_successor: Address,
     // todo: leverage memory models to derive the memory access data ?
     mem: MemoryData,
@@ -90,6 +103,36 @@ impl InstructionData {
             }; Register::AMOUNT],
             last_successor: 0,
             mem: MemoryData::new(),
+        }
+    }
+
+    pub fn to_serialized_instruction(&self, pc: Address) -> trace::SerializedInstruction {
+        let mut min_vals: HashMap<usize, trace::Register> = Default::default();
+        let mut max_vals: HashMap<usize, trace::Register> = Default::default();
+        let mut last_vals: HashMap<usize, trace::Register> = Default::default();
+
+        let insert_if_set = |registers: &mut HashMap<usize, trace::Register>,
+                             values: &Registers| {
+            for (i, v) in values.into_iter().enumerate() {
+                if v.is_set {
+                    registers.insert(i, trace::Register::from(v.value as u64));
+                }
+            }
+        };
+
+        insert_if_set(&mut min_vals, &self.min_vals);
+        insert_if_set(&mut max_vals, &self.max_vals);
+        insert_if_set(&mut last_vals, &self.last_vals);
+
+        SerializedInstruction {
+            address: pc as usize,
+            mnemonic: self.mnemonic.clone(),
+            registers_min: trace::Registers::from(min_vals),
+            registers_max: trace::Registers::from(max_vals),
+            registers_last: trace::Registers::from(last_vals),
+            last_successor: self.last_successor as usize,
+            count: self.count,
+            memory: None,
         }
     }
 }
@@ -126,27 +169,96 @@ pub struct RootCauseTrace {
     reg_state: [u32; Register::AMOUNT],
     prev_edge_type: EdgeType,
     prev_ins_addr: Address,
+    first_address: Address,
+    image_base: Address,
+    trace_dir: Option<PathBuf>,
+    trace_cnt: u64,
 }
 
 impl RootCauseTrace {
-    pub fn new() -> Self {
+    pub fn new(trace_file_path: Option<PathBuf>) -> Self {
+        let trace_dir = if let Some(path) = trace_file_path {
+            let parent = path.parent().unwrap_or_else(|| &Path::new("."));
+            Some(parent.to_path_buf())
+        } else {
+            None
+        };
+
         RootCauseTrace {
             instructions: FxHashMap::default(),
             edges: FxHashMap::default(),
             reg_state: [0; Register::AMOUNT],
             prev_edge_type: EdgeType::Unknown,
             prev_ins_addr: 0,
+            first_address: 0,
+            image_base: 0,
+            trace_dir,
+            trace_cnt: 0,
         }
     }
 
     pub fn on_instruction(&mut self, pc: u32) -> Result<()> {
+        if self.instructions.len() == 0x0 {
+            self.first_address = pc;
+        }
         self.update_instructions(pc)?;
-
         self.update_edges(pc)
     }
 
-    pub fn post_run<W: Write>(&self, stream: &mut W) -> Result<()> {
-        Trace::new(&self.instructions, &self.edges).write_to(stream)
+    pub fn post_run(&mut self, stop_reason: &Option<StopReason>) -> Result<()> {
+        let (trace_dir, stop_reason) = match (self.trace_dir.as_mut(), stop_reason) {
+            (Some(a), Some(b)) => (a, b),
+            (_, _) => return Ok(()),
+        };
+
+        log::info!("Writing serialized trace to file");
+
+        let instructions = self
+            .instructions
+            .iter()
+            .map(|(pc, inst)| inst.to_serialized_instruction(*pc))
+            .collect();
+
+        let edges = self
+            .edges
+            .iter()
+            .map(|(edge, edgeinfo)| edge.to_serialized_edge(edgeinfo.count))
+            .collect();
+
+        let trace = SerializedTrace {
+            instructions,
+            edges,
+            first_address: self.first_address as usize,
+            last_address: self.prev_ins_addr as usize,
+            image_base: self.image_base as usize,
+        };
+
+        self.trace_cnt += 1;
+
+        let stream = match stop_reason {
+            StopReason::Crash { .. } => {
+                trace_dir.push(format!("crashes/{}.bin", self.trace_cnt));
+                encoder(&trace_dir)
+            }
+            _ => {
+                trace_dir.push(format!("non_crashes/{}.bin", self.trace_cnt));
+                encoder(&trace_dir)
+            }
+        }
+        .context("Unable to open trace file")?;
+        trace_dir.pop();
+        trace_dir.pop();
+        self.reset();
+
+        Ok(bincode::serialize_into(stream, &trace)?)
+    }
+
+    fn reset(&mut self) {
+        self.instructions.clear();
+        self.edges.clear();
+        self.prev_ins_addr = 0;
+        self.prev_edge_type = EdgeType::Unknown;
+        self.reg_state = [0; Register::AMOUNT];
     }
 
     fn update_instructions(&mut self, pc: u32) -> Result<()> {

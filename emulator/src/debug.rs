@@ -15,7 +15,7 @@ use frametracer::{
 use itertools::Itertools;
 use modeling::{hardware::Input, mmio::AccessContext, mmio_model::ReadSize};
 use parking_lot::Mutex;
-use qemu_rs::{memory::MemoryType, Address, Exception, USize};
+use qemu_rs::{memory::MemoryMap, memory::MemoryType, Address, Exception, USize};
 use zstd::stream::AutoFinishEncoder;
 
 use crate::{
@@ -23,7 +23,7 @@ use crate::{
         custom::{Bug, HookRuntime, BUGS, STOP},
         debug::DebugHook,
     },
-    root_cause_trace::RootCauseTrace,
+    root_cause_trace::{self, RootCauseTrace},
     StopReason,
 };
 
@@ -55,7 +55,7 @@ pub(crate) struct EmulatorDebugData {
     debug_hooks: FxHashMap<Address, Arc<DebugHook>>,
     custom_hooks: Option<HookRuntime>,
     output_buffer: String,
-    root_cause_trace: RootCauseTrace,
+    root_cause_trace: Option<RootCauseTrace>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +90,7 @@ impl EmulatorDebugData {
         custom_hooks: Vec<CustomHook>,
         trace_file: Option<PathBuf>,
     ) -> Result<Self> {
+        let trace_file_path = trace_file.clone();
         // trace file
         let trace_file = if let Some(trace_file) = trace_file {
             Some(encoder(&trace_file)?)
@@ -169,6 +170,12 @@ impl EmulatorDebugData {
             None
         };
 
+        let root_cause_trace = if trace_type == TraceType::RootCause {
+            Some(RootCauseTrace::new(trace_file_path))
+        } else {
+            None
+        };
+
         Ok(Self {
             enabled,
             trace,
@@ -179,7 +186,7 @@ impl EmulatorDebugData {
             debug_hooks,
             custom_hooks,
             output_buffer: String::new(),
-            root_cause_trace: RootCauseTrace::new(),
+            root_cause_trace,
         })
     }
 
@@ -207,14 +214,20 @@ impl EmulatorDebugData {
         self.write_event(TraceEvent::Run(Run { id }))
     }
 
-    pub(crate) fn post_run(&mut self) -> Result<Option<Vec<Bug>>> {
+    pub(crate) fn post_run(
+        &mut self,
+        stop_reason: &Option<StopReason>,
+    ) -> Result<Option<Vec<Bug>>> {
         if !self.enabled() {
             return Ok(None);
         }
 
         if self.trace_type() == TraceType::RootCause {
             if let Some(trace_file) = &mut self.trace_file {
-                self.root_cause_trace.post_run(trace_file)?;
+                self.root_cause_trace
+                    .as_mut()
+                    .unwrap()
+                    .post_run(stop_reason)?;
             }
         }
 
@@ -308,10 +321,6 @@ impl EmulatorDebugData {
         self.trace_type
     }
 
-    pub(crate) fn root_cause_trace(&self) -> &RootCauseTrace {
-        &self.root_cause_trace
-    }
-
     pub(crate) fn trace_mode(&self) -> bool {
         self.trace
     }
@@ -344,7 +353,7 @@ impl EmulatorDebugData {
             TraceType::Normal => self
                 .write_event(TraceEvent::Instruction(Instruction { pc }))
                 .context("trace instruction"),
-            TraceType::RootCause => self.root_cause_trace.on_instruction(pc),
+            TraceType::RootCause => self.root_cause_trace.as_mut().unwrap().on_instruction(pc),
         }
     }
 }

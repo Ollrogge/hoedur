@@ -153,6 +153,10 @@ impl MemoryMap {
             data,
         })
     }
+
+    pub fn name(&self) -> &Option<String> {
+        &self.name
+    }
 }
 
 impl MemoryMapAlias {

@@ -222,7 +222,7 @@ impl<I: Input + Debug> EmulatorData<I> {
         &mut self,
         qemu_stop_reason: Option<qemu_rs::QemuStopReason>,
     ) -> Result<ExecutionResult<I>> {
-        let bugs = self.debug.post_run()?;
+        let bugs = self.debug.post_run(&self.stop)?;
 
         // update counts
         self.update_basic_block_count()?;
