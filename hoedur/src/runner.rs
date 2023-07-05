@@ -123,7 +123,7 @@ impl RunCorpusArchiveConfig {
 pub enum Command {
     Run(RunConfig),
     RunCov(RunCovConfig),
-    RootCause(ExplorationConfig),
+    Exploration(ExplorationConfig),
     RunCorpusArchive(RunCorpusArchiveConfig),
     Fuzzer(HoedurConfig),
 }
@@ -137,7 +137,7 @@ impl Command {
                 archive.as_ref().cloned()
             }
             Command::Fuzzer(HoedurConfig { archive, .. }) => Some(archive.clone()),
-            _ => None,
+            Command::Exploration(ExplorationConfig { archive, .. }) => Some(archive.clone()),
         }
     }
 
@@ -147,7 +147,7 @@ impl Command {
             | Command::RunCov(RunCovConfig { prefix_input, .. })
             | Command::RunCorpusArchive(RunCorpusArchiveConfig { prefix_input, .. })
             | Command::Fuzzer(HoedurConfig { prefix_input, .. })
-            | Command::RootCause(ExplorationConfig { prefix_input, .. }) => prefix_input,
+            | Command::Exploration(ExplorationConfig { prefix_input, .. }) => prefix_input,
         }
     }
 }
@@ -222,7 +222,7 @@ impl RunnerConfig {
             }
             cli::Command::Fuzz(args) => Command::Fuzzer(HoedurConfig::from_cli(name, args)?),
             cli::Command::RootCause(args) => {
-                Command::RootCause(ExplorationConfig::from_cli(&name, args)?)
+                Command::Exploration(ExplorationConfig::from_cli(&name, args)?)
             }
         };
 
@@ -448,7 +448,7 @@ pub fn run(config: RunnerConfig) -> Result<()> {
         }
         Command::RunCorpusArchive(corpus_config) => run_corpus_archive(emulator, corpus_config),
         Command::Fuzzer(hoedur_config) => hoedur::run_fuzzer(emulator, hoedur_config),
-        Command::RootCause(exploration_config) => {
+        Command::Exploration(exploration_config) => {
             exploration::run_fuzzer(emulator, exploration_config)
         }
     }?;

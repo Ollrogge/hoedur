@@ -63,12 +63,22 @@ impl ExplorationMode {
         })
     }
 
+    pub fn crashes_len(&self) -> usize {
+        self.unique_crashes.len()
+    }
+
+    pub fn inputs_len(&self) -> usize {
+        self.unique_inputs.len()
+    }
+
     pub fn save_crash(&mut self, cov: ExplorationCoverage, f: &InputFile) -> Result<()> {
         if self.unique_crashes.insert(cov.get_hash()) {
+            /*
             println!(
                 "Found another crash: pc:{} ra:{}, basic blocks: {}, input stream length: {}",
                 cov.pc, cov.ra, cov.basic_blocks, cov.input_stream_len,
             );
+            */
 
             return write_file_raw(
                 &mut self.archive.borrow_mut(),

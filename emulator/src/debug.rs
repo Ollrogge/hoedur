@@ -212,6 +212,12 @@ impl EmulatorDebugData {
             return Ok(None);
         }
 
+        if self.trace_type() == TraceType::RootCause {
+            if let Some(trace_file) = &mut self.trace_file {
+                self.root_cause_trace.post_run(trace_file)?;
+            }
+        }
+
         // call custom hooks
         if let Some(runtime) = &mut self.custom_hooks {
             runtime.on_post_run().context("call custom post_run hook")?;
@@ -300,6 +306,10 @@ impl EmulatorDebugData {
 
     pub(crate) fn trace_type(&self) -> TraceType {
         self.trace_type
+    }
+
+    pub(crate) fn root_cause_trace(&self) -> &RootCauseTrace {
+        &self.root_cause_trace
     }
 
     pub(crate) fn trace_mode(&self) -> bool {

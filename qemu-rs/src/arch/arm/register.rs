@@ -55,6 +55,7 @@ enum RegisterIndex {
 }
 
 impl Register {
+    pub const AMOUNT: usize = 18;
     pub fn printable() -> [Self; 18] {
         use Register::*;
 

@@ -34,6 +34,7 @@ serde = { version = "1.0.162", features = ["derive", "rc"] }
 serde_yaml = "0.8.26"
 variant_count = "1.1.0"
 zstd = "0.12.3"
+trace_analysis = {path = "/home/h0ps/Uni/MasterArbeit/aurora/root_cause_analysis/trace_analysis"}
 
 [dev-dependencies]
 fastrand = "1.9.0"

@@ -62,7 +62,7 @@ use self::{debug::EmulatorDebugData, hooks::debug::DebugHook, limits::TargetLimi
 
 pub type CoverageLog = FxHashSet<Address>;
 
-#[derive(ValueEnum, Debug, Default, Clone, Copy)]
+#[derive(ValueEnum, Debug, Default, Clone, Copy, PartialEq)]
 pub enum TraceType {
     #[default]
     Normal,

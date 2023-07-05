@@ -10,7 +10,7 @@ from fuzz_common import *
 
 def main():
     parser = argparse.ArgumentParser(description="idk what this is")
-    parser.add_argument('crash_corpus', help='Paths to exploration archives')
+    parser.add_argument('crash_corpus', help='Paths to crash archive')
     parser.add_argument('archive', help='Path where to store result of exploration')
     args = parser.parse_args()
 
@@ -20,8 +20,8 @@ def _run(crash_corpus, archive):
     cmd = ['cargo', 'run' ,'--bin','hoedur-arm', '--']
     cmd += ['--import-config', crash_corpus]
    # cmd += ['--help']
-    cmd += ['--debug', '--trace']
-    cmd += ['--trace-type', 'root-cause']
+    #cmd += ['--debug', '--trace']
+    #cmd += ['--trace-type', 'root-cause']
     #cmd += ['--hook', './root-cause-analysis/hooks/test.rs']
     cmd += ['exploration']
     cmd += ['--archive-dir', archive]

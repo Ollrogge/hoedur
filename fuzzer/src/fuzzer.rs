@@ -288,7 +288,19 @@ impl Fuzzer {
         self.exploration_mode = Some(ExplorationMode::new(archive)?);
         self.mode = Mode::EXPLORATION;
         log::info!("Running exploration mode");
-        self.run_plain_fuzzer()?;
+
+        while !EXIT.load(Ordering::Relaxed)
+            && self.exploration_mode.as_mut().unwrap().crashes_len() < 25
+        {
+            // random input for mutation
+            let input = self
+                .next_input()
+                .context("Failed to get random input.")?
+                .fork();
+
+            self.run_mutations(input, None, &self.pre_fuzzing.clone())?;
+        }
+
         Ok(())
     }
 
