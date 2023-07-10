@@ -5,8 +5,10 @@ use anyhow::{bail, Result};
 use qemu_sys::{cstr, memory_region_init_alias};
 
 use crate::{
-    board::Board, hook::mmio::MmioRegionCallbackHandler, memory, CpuModel, QemuCallbackShared,
-    QemuStateControl,
+    board::Board,
+    hook::mmio::MmioRegionCallbackHandler,
+    memory::{self, QemuMemoryData},
+    CpuModel, QemuCallbackShared, QemuStateControl,
 };
 
 pub const TYPE_FUZZ_BOARD: *const i8 = cstr!("fuzz-board");

@@ -214,6 +214,29 @@ impl EmulatorDebugData {
         self.write_event(TraceEvent::Run(Run { id }))
     }
 
+    pub(crate) fn on_memory_access(
+        &mut self,
+        memory_type: MemoryType,
+        access_type: AccessType,
+        pc: Address,
+        address: Address,
+        value: USize,
+        size: u8,
+    ) -> Result<()> {
+        if self.trace_type() == TraceType::RootCause {
+            self.root_cause_trace.as_mut().unwrap().on_memory_access(
+                memory_type,
+                access_type,
+                pc,
+                address,
+                value,
+                size,
+            )?;
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn post_run(
         &mut self,
         stop_reason: &Option<StopReason>,
@@ -533,14 +556,14 @@ impl<I: Input + Debug> EmulatorData<I> {
             return Ok(());
         }
 
+        let memory_type = match target {
+            AccessTarget::Rom => MemoryType::Rom,
+            AccessTarget::Ram => MemoryType::Ram,
+            AccessTarget::Mmio => MemoryType::Mmio,
+            AccessTarget::Stack => MemoryType::Ram,
+        };
         // call custom hooks
         if let Some(runtime) = &mut self.debug.custom_hooks {
-            let memory_type = match target {
-                AccessTarget::Rom => MemoryType::Rom,
-                AccessTarget::Ram => MemoryType::Ram,
-                AccessTarget::Mmio => MemoryType::Mmio,
-                AccessTarget::Stack => MemoryType::Ram,
-            };
             runtime
                 .on_memory_access(
                     memory_type,
@@ -552,6 +575,17 @@ impl<I: Input + Debug> EmulatorData<I> {
                 )
                 .context("call custom MMIO hook")?;
         }
+
+        self.debug
+            .on_memory_access(
+                memory_type,
+                access_type,
+                context.pc(),
+                context.mmio().addr(),
+                data,
+                size as u8,
+            )
+            .context("call debug.on_memory_access");
 
         // add access to trace
         self.debug

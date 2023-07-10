@@ -10,7 +10,7 @@ arm = ["modeling/arm", "qemu-rs/arm"]
 [dependencies]
 anyhow = "1.0.71"
 archive = { path = "../archive" }
-bincode = "1.3.3"
+bincode = "*"
 bitflags = "2.2.1"
 common = { path = "../common" }
 clap = { version = "4.2.7", features = ["derive", "wrap_help"] }
@@ -34,6 +34,8 @@ serde = { version = "1.0.162", features = ["derive", "rc"] }
 serde_yaml = "0.8.26"
 variant_count = "1.1.0"
 zstd = "0.12.3"
+capstone="*"
+serde_json="*"
 trace_analysis = {path = "/home/h0ps/Uni/MasterArbeit/aurora/root_cause_analysis/trace_analysis"}
 
 [dev-dependencies]

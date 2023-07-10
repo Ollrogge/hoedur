@@ -303,6 +303,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "capstone"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1097e608594dad3bad608295567f757742b883606fe150faf7a9740b849730d8"
+dependencies = [
+ "capstone-sys",
+ "libc",
+]
+
+[[package]]
+name = "capstone-sys"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e7f651d5ec4c2a2e6c508f2c8032655003cd728ec85663e9796616990e25b5a"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "cargo-husky"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -775,6 +795,7 @@ dependencies = [
  "archive",
  "bincode",
  "bitflags 2.2.1",
+ "capstone",
  "clap 4.2.7",
  "common",
  "derive_more",
@@ -794,6 +815,7 @@ dependencies = [
  "qemu-rs",
  "rune",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "trace_analysis",

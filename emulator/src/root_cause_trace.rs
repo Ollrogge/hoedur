@@ -1,6 +1,12 @@
 use anyhow::{Context, Result};
+use capstone::arch::arm::{self, ArmInsn, ArmOperandType};
+use capstone::prelude::*;
+use common::fs::{bufwriter, bufwriter_append};
 use common::{fs::encoder, hashbrown::hash_map::Entry, FxHashMap, FxHashSet};
+use frametracer::AccessType;
+use qemu_rs::{memory::MemoryType, qcontrol, Address, Register, USize};
 use rune::ast::In;
+use rune::Hash;
 use serde::Serialize;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -15,13 +21,15 @@ use std::{
 };
 use zstd::stream::AutoFinishEncoder;
 
-use qemu_rs::{qcontrol, register, Address, Register};
-
-use trace_analysis::trace::{self, SerializedEdge, SerializedInstruction, SerializedTrace};
+use serde_json;
+use trace_analysis::trace::{
+    self, Memory as SerializedMemory, SerializedEdge, SerializedInstruction, SerializedTrace,
+};
+use trace_analysis::trace_analyzer::MemoryAddresses;
 
 use crate::StopReason;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq, Clone)]
 enum EdgeType {
     Direct,
     Indirect,
@@ -32,7 +40,7 @@ enum EdgeType {
     Unknown,
 }
 
-#[derive(PartialEq, Eq, Hash, Serialize)]
+#[derive(PartialEq, Eq, Hash, Serialize, Copy, Clone)]
 struct Edge {
     from: Address,
     to: Address,
@@ -46,7 +54,7 @@ impl Edge {
 
 #[derive(Serialize)]
 struct EdgeInfo {
-    typ: EdgeType,
+    edge_type: EdgeType,
     count: u64,
 }
 
@@ -56,32 +64,40 @@ struct Value {
     value: u32,
 }
 
-#[derive(Serialize)]
-struct MemoryData {
-    tmp: u32,
+#[derive(Default, Debug, Clone, Copy)]
+struct MemoryField {
+    address: Address,
+    size: u8,
+    value: USize,
 }
 
-impl MemoryData {
-    pub fn new() -> MemoryData {
-        MemoryData { tmp: 0 }
-    }
+#[derive(Default, Debug)]
+struct MemoryData {
+    last_addr: MemoryField,
+    min_addr: MemoryField,
+    max_addr: MemoryField,
+    last_value: MemoryField,
+    min_value: MemoryField,
+    max_value: MemoryField,
 }
 
 type Registers = [Value; Register::AMOUNT];
 
-#[derive(Serialize)]
 struct InstructionData {
     /// how often instruction was called
     count: usize,
+    /// disassembled name of inst
     mnemonic: String,
     /// min values for each register
     min_vals: Registers,
     /// max values for each register
     max_vals: Registers,
+    /// last-seen value of regs
     last_vals: Registers,
+    // last successor of recorded for this inst
     last_successor: Address,
     // todo: leverage memory models to derive the memory access data ?
-    mem: MemoryData,
+    mem_data: MemoryData,
 }
 
 impl InstructionData {
@@ -102,7 +118,7 @@ impl InstructionData {
                 value: 0,
             }; Register::AMOUNT],
             last_successor: 0,
-            mem: MemoryData::new(),
+            mem_data: MemoryData::default(),
         }
     }
 
@@ -124,6 +140,19 @@ impl InstructionData {
         insert_if_set(&mut max_vals, &self.max_vals);
         insert_if_set(&mut last_vals, &self.last_vals);
 
+        let memory = if self.mem_data.last_addr.size != 0 {
+            Some(SerializedMemory {
+                min_address: self.mem_data.min_addr.address as u64,
+                max_address: self.mem_data.max_addr.address as u64,
+                last_address: self.mem_data.last_addr.address as u64,
+                min_value: self.mem_data.min_value.value as u64,
+                max_value: self.mem_data.max_value.value as u64,
+                last_value: self.mem_data.last_value.value as u64,
+            })
+        } else {
+            None
+        };
+
         SerializedInstruction {
             address: pc as usize,
             mnemonic: self.mnemonic.clone(),
@@ -132,30 +161,8 @@ impl InstructionData {
             registers_last: trace::Registers::from(last_vals),
             last_successor: self.last_successor as usize,
             count: self.count,
-            memory: None,
+            memory: memory,
         }
-    }
-}
-
-#[derive(Serialize)]
-struct Trace<'a> {
-    instructions: &'a FxHashMap<Address, InstructionData>,
-    edges: &'a FxHashMap<Edge, EdgeInfo>,
-}
-
-impl<'a> Trace<'a> {
-    pub fn new(
-        instructions: &'a FxHashMap<Address, InstructionData>,
-        edges: &'a FxHashMap<Edge, EdgeInfo>,
-    ) -> Trace<'a> {
-        Trace {
-            instructions,
-            edges,
-        }
-    }
-
-    pub fn write_to<W: Write>(&self, stream: &mut W) -> Result<()> {
-        Ok(bincode::serialize_into(stream, self)?)
     }
 }
 
@@ -173,6 +180,7 @@ pub struct RootCauseTrace {
     image_base: Address,
     trace_dir: Option<PathBuf>,
     trace_cnt: u64,
+    cs: Capstone,
 }
 
 impl RootCauseTrace {
@@ -184,6 +192,14 @@ impl RootCauseTrace {
             None
         };
 
+        let cs = Capstone::new()
+            .arm()
+            .mode(arm::ArchMode::Thumb)
+            .detail(true)
+            .endian(capstone::Endian::Little)
+            .build()
+            .expect("failed to init capstone");
+
         RootCauseTrace {
             instructions: FxHashMap::default(),
             edges: FxHashMap::default(),
@@ -194,15 +210,8 @@ impl RootCauseTrace {
             image_base: 0,
             trace_dir,
             trace_cnt: 0,
+            cs: cs,
         }
-    }
-
-    pub fn on_instruction(&mut self, pc: u32) -> Result<()> {
-        if self.instructions.len() == 0x0 {
-            self.first_address = pc;
-        }
-        self.update_instructions(pc)?;
-        self.update_edges(pc)
     }
 
     pub fn post_run(&mut self, stop_reason: &Option<StopReason>) -> Result<()> {
@@ -233,24 +242,51 @@ impl RootCauseTrace {
             image_base: self.image_base as usize,
         };
 
-        self.trace_cnt += 1;
-
-        let stream = match stop_reason {
+        let mut stream = match stop_reason {
             StopReason::Crash { .. } => {
                 trace_dir.push(format!("crashes/{}.bin", self.trace_cnt));
-                encoder(&trace_dir)
+                bufwriter(&trace_dir)
             }
             _ => {
                 trace_dir.push(format!("non_crashes/{}.bin", self.trace_cnt));
-                encoder(&trace_dir)
+                bufwriter(&trace_dir)
             }
         }
         .context("Unable to open trace file")?;
         trace_dir.pop();
         trace_dir.pop();
-        self.reset();
 
-        Ok(bincode::serialize_into(stream, &trace)?)
+        // todo: remove the bufwriter_append if really just 1 address range needed
+        if self.trace_cnt == 0x0 {
+            trace_dir.push("addresses.json");
+            for block in qcontrol().memory_blocks() {
+                if block.name.contains("ram") {
+                    // define everything to be stack for now
+                    let addresses = MemoryAddresses {
+                        heap_start: 0x0,
+                        heap_end: 0x0,
+                        stack_start: block.start as usize,
+                        stack_end: block.start as usize + block.data.len(),
+                    };
+
+                    let json = serde_json::to_string(&addresses).context("json to string")?;
+                    if self.trace_cnt == 0x0 {
+                        bufwriter(&trace_dir)
+                            .and_then(|mut f| f.write_all(json.as_bytes()).context("write all"))?;
+                    } else {
+                        bufwriter_append(&trace_dir)
+                            .and_then(|mut f| f.write_all(json.as_bytes()).context("write all"))?;
+                    }
+                }
+            }
+
+            trace_dir.pop();
+        }
+
+        self.reset();
+        self.trace_cnt += 1;
+
+        Ok(bincode::serialize_into(&mut stream, &trace)?)
     }
 
     fn reset(&mut self) {
@@ -261,8 +297,103 @@ impl RootCauseTrace {
         self.reg_state = [0; Register::AMOUNT];
     }
 
+    pub fn on_memory_access(
+        &mut self,
+        memory_type: MemoryType,
+        access_type: AccessType,
+        pc: Address,
+        address: Address,
+        value: USize,
+        size: u8,
+    ) -> Result<()> {
+        // disregard everything with more than 8 bytes similar to aurora
+        if access_type != AccessType::Write || size > 0x8 {
+            return Ok(());
+        }
+
+        // TODO: think about how to handle mmio accesses -> need to add it
+        // to memory ranges first
+        if memory_type == MemoryType::Mmio {
+            return Ok(());
+        }
+
+        if size == 0x0 {
+            log::info!("Memory access size 0? {:x}", pc);
+        }
+
+        if let Some(inst) = self.instructions.get_mut(&pc) {
+            let mem_data = &mut inst.mem_data;
+            let access = MemoryField {
+                address,
+                size,
+                value,
+            };
+
+            if mem_data.last_addr.size != 0x0 && mem_data.last_addr.size != access.size {
+                log::info!("Memory operand has different access sizes: {:x}", pc);
+            }
+
+            if mem_data.max_addr.address <= access.address {
+                mem_data.max_addr = access;
+            }
+            if mem_data.min_addr.address >= access.address {
+                mem_data.min_addr = access;
+            }
+            mem_data.last_addr = access;
+
+            if mem_data.max_value.value <= access.value {
+                mem_data.max_value = access;
+            }
+            if mem_data.min_value.value >= access.value {
+                mem_data.min_value = access;
+            }
+            mem_data.last_value = access;
+        }
+        Ok(())
+    }
+
+    pub fn on_instruction(&mut self, pc: u32) -> Result<()> {
+        // some initialization stuff after emulator has been inizialized and stuff
+        if self.instructions.len() == 0x0 {
+            self.first_address = pc;
+        }
+
+        // update Regular add type instruction after it has been executed
+        if self.prev_edge_type == EdgeType::Regular {
+            self.update_instructions(self.prev_ins_addr)?;
+        }
+
+        // only consider 4 byte because max inst length of ARMv-M is 32 bit
+        let edge_type = qcontrol()
+            .memory_blocks()
+            .find(|x| x.contains(pc))
+            .and_then(|mem_block| {
+                self.cs
+                    .disasm_all(&mem_block.data[(pc as usize)..(pc as usize) + 4], 0)
+                    .ok()
+            })
+            .and_then(|insts| match insts.iter().next() {
+                Some(inst) => Some(self.get_edge_type(inst)),
+                _ => None,
+            })
+            .unwrap_or(EdgeType::Unknown);
+
+        match edge_type {
+            // regular edges are being handled after they have been executed
+            EdgeType::Regular => (),
+            _ => self.update_instructions(pc)?,
+        }
+
+        if self.prev_ins_addr != 0x0 {
+            self.update_edges(pc, edge_type.clone())?;
+        }
+
+        self.prev_ins_addr = pc;
+        self.prev_edge_type = edge_type;
+        Ok(())
+    }
+
     fn update_instructions(&mut self, pc: u32) -> Result<()> {
-        // In this code, map is used to transform the Result<Register, _> into a Result<QControlRegister, _> (assuming qcontrol().register(reg) returns QControlRegister). If try_from fails and returns an Err, then the map function will not be applied, and the Err will be passed through to collect, which will immediately return the Err.
         let registers: Result<Vec<_>> = Register::printable()
             .iter()
             .map(ToString::to_string)
@@ -284,6 +415,10 @@ impl RootCauseTrace {
             for i in 0..registers.len() {
                 // has register changed ?
                 if self.reg_state[i] != registers[i] {
+                    // update reg value in global state
+                    self.reg_state[i] = registers[i];
+
+                    // min / max val
                     if registers[i] <= inst_data.min_vals[i].value {
                         inst_data.min_vals[i].value = registers[i];
                     }
@@ -299,12 +434,10 @@ impl RootCauseTrace {
             }
         }
 
-        self.reg_state = registers.try_into().unwrap();
-
         Ok(())
     }
 
-    fn update_edges(&mut self, pc: u32) -> Result<()> {
+    fn update_edges(&mut self, pc: u32, edge_type: EdgeType) -> Result<()> {
         if self.prev_ins_addr != 0 {
             let edge = Edge {
                 from: self.prev_ins_addr,
@@ -315,20 +448,67 @@ impl RootCauseTrace {
                 Entry::Vacant(entry) => {
                     // todo: get type
                     entry.insert(EdgeInfo {
-                        typ: EdgeType::Unknown,
+                        edge_type: edge_type,
                         count: 0,
                     });
                 }
                 Entry::Occupied(mut entry_wrapper) => {
                     let entry = entry_wrapper.get_mut();
                     entry.count += 1;
+                    if edge_type != entry.edge_type {
+                        log::info!("Edge {:x} -> {:x} differs from the stored one. Type1: {:?}, Type2: {:?}", edge.from, edge.to, entry.edge_type, edge_type)
+                    }
                 }
             }
         }
 
+        // add last successor information to previous instruction
         if let Some(inst_data) = self.instructions.get_mut(&self.prev_ins_addr) {
             inst_data.last_successor = pc;
         }
         Ok(())
+    }
+
+    fn get_edge_type(&self, inst: &capstone::Insn) -> EdgeType {
+        match inst.id().0 {
+            id if id == ArmInsn::ARM_INS_BX as u32
+                || id == ArmInsn::ARM_INS_BLX as u32
+                || id == ArmInsn::ARM_INS_POP as u32 =>
+            {
+                EdgeType::Return
+            }
+
+            id if id == ArmInsn::ARM_INS_BL as u32
+                || id == ArmInsn::ARM_INS_B as u32
+                || id == ArmInsn::ARM_INS_BIC as u32
+                || id == ArmInsn::ARM_INS_CBZ as u32
+                || id == ArmInsn::ARM_INS_CBNZ as u32
+                || id == ArmInsn::ARM_INS_TBH as u32
+                || id == ArmInsn::ARM_INS_TBB as u32 =>
+            {
+                if let Ok(details) = self.cs.insn_detail(&inst) {
+                    if let capstone::arch::ArchDetail::ArmDetail(inst_detail) =
+                        details.arch_detail()
+                    {
+                        // check if condition codes of inst are != unconditional
+                        if inst_detail.cc() != capstone::arch::arm::ArmCC::ARM_CC_AL {
+                            return EdgeType::Conditional;
+                        }
+                        for op in inst_detail.operands() {
+                            match op.op_type {
+                                ArmOperandType::Imm(_) => return EdgeType::Direct,
+                                ArmOperandType::Reg(_) => return EdgeType::Indirect,
+                                _ => (),
+                            }
+                        }
+                    }
+                }
+                EdgeType::Unknown
+            }
+
+            id if id == ArmInsn::ARM_INS_SVC as u32 => EdgeType::Syscall,
+
+            _ => EdgeType::Regular,
+        }
     }
 }

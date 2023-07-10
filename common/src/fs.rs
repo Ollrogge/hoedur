@@ -1,6 +1,6 @@
 use std::{
-    fs::{self, File},
-    io::{BufReader, BufWriter},
+    fs::{self, File, OpenOptions},
+    io::{BufReader, BufWriter, Write},
     path::{Component, Path, PathBuf},
     time::SystemTime,
 };
@@ -111,6 +111,15 @@ pub fn decoder(path: &Path) -> Result<zstd::Decoder<BufReader<File>>> {
 
 pub fn bufwriter(path: &Path) -> Result<BufWriter<File>> {
     File::create(path)
+        .with_context(|| format!("Failed to create file {path:?}"))
+        .map(BufWriter::new)
+}
+
+pub fn bufwriter_append(path: &Path) -> Result<BufWriter<File>> {
+    OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)
         .with_context(|| format!("Failed to create file {path:?}"))
         .map(BufWriter::new)
 }

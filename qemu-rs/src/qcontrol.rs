@@ -40,6 +40,20 @@ pub struct MemoryBlock<'a> {
     pub readonly: bool,
     pub start: Address,
     pub data: &'a [u8],
+    pub executable: bool,
+    pub name: String,
+}
+
+impl<'a> fmt::Debug for MemoryBlock<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryBlock")
+            .field("readonly", &self.readonly)
+            .field("executable", &self.executable)
+            .field("start", &format_args!("{:#x}", self.start))
+            .field("size", &format_args!("{:#x}", self.data.len()))
+            .field("name", &self.name)
+            .finish()
+    }
 }
 
 impl QemuStateControl {
@@ -259,10 +273,15 @@ impl Memory {
         if let Some(pointer) = unsafe { self.pointer() } {
             let readonly = self.inner().readonly();
 
+            let reg_name = self.qemu_memory_map.name().to_str().unwrap_or("");
+            let reg_name = reg_name.to_string();
+
             blocks.push(MemoryBlock {
                 readonly,
                 start: self.qemu_memory_map.start(),
                 data: pointer,
+                executable: self.qemu_memory_map.executable(0).unwrap_or(false),
+                name: reg_name.clone(),
             });
 
             for alias in aliases {
@@ -272,6 +291,11 @@ impl Memory {
                     readonly,
                     start: alias.start(),
                     data: &pointer[offset..(offset + size)],
+                    executable: self
+                        .qemu_memory_map
+                        .executable(offset as u32)
+                        .unwrap_or(false),
+                    name: reg_name.clone(),
                 })
             }
         }
