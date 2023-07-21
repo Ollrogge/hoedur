@@ -15,7 +15,7 @@ use frametracer::{
 use itertools::Itertools;
 use modeling::{hardware::Input, mmio::AccessContext, mmio_model::ReadSize};
 use parking_lot::Mutex;
-use qemu_rs::{memory::MemoryMap, memory::MemoryType, Address, Exception, USize};
+use qemu_rs::{memory::MemoryType, Address, Exception, USize};
 use zstd::stream::AutoFinishEncoder;
 
 use crate::{
@@ -23,7 +23,7 @@ use crate::{
         custom::{Bug, HookRuntime, BUGS, STOP},
         debug::DebugHook,
     },
-    root_cause_trace::{self, RootCauseTrace},
+    root_cause_trace::RootCauseTrace,
     StopReason,
 };
 
@@ -585,7 +585,7 @@ impl<I: Input + Debug> EmulatorData<I> {
                 data,
                 size as u8,
             )
-            .context("call debug.on_memory_access");
+            .context("call debug.on_memory_access")?;
 
         // add access to trace
         self.debug

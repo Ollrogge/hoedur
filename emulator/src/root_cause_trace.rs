@@ -1,25 +1,14 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use capstone::arch::arm::{self, ArmInsn, ArmOperandType};
 use capstone::prelude::*;
-use common::fs::{bufwriter, bufwriter_append};
-use common::{fs::encoder, hashbrown::hash_map::Entry, FxHashMap, FxHashSet};
+use common::fs::bufwriter;
+use common::{hashbrown::hash_map::Entry, FxHashMap};
 use frametracer::AccessType;
 use qemu_rs::{memory::MemoryType, qcontrol, Address, Register, USize};
-use rune::ast::In;
-use rune::Hash;
 use serde::Serialize;
-use std::cmp::min;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::{
-    fmt::{self, Debug},
-    fs::File,
-    io::{BufWriter, Write},
-    path::Path,
-    path::PathBuf,
-    sync::{atomic::Ordering, Arc},
-};
-use zstd::stream::AutoFinishEncoder;
+use std::{fmt::Debug, io::Write, path::Path, path::PathBuf};
 
 use serde_json;
 use trace_analysis::trace::{
@@ -181,6 +170,7 @@ pub struct RootCauseTrace {
     trace_dir: Option<PathBuf>,
     trace_cnt: u64,
     cs: Capstone,
+    detailed_trace_info: Vec<(usize, [u32; Register::AMOUNT])>,
 }
 
 impl RootCauseTrace {
@@ -211,6 +201,7 @@ impl RootCauseTrace {
             trace_dir,
             trace_cnt: 0,
             cs: cs,
+            detailed_trace_info: vec![],
         }
     }
 
@@ -242,21 +233,7 @@ impl RootCauseTrace {
             image_base: self.image_base as usize,
         };
 
-        let mut stream = match stop_reason {
-            StopReason::Crash { .. } => {
-                trace_dir.push(format!("crashes/{}.bin", self.trace_cnt));
-                bufwriter(&trace_dir)
-            }
-            _ => {
-                trace_dir.push(format!("non_crashes/{}.bin", self.trace_cnt));
-                bufwriter(&trace_dir)
-            }
-        }
-        .context("Unable to open trace file")?;
-        trace_dir.pop();
-        trace_dir.pop();
-
-        // todo: remove the bufwriter_append if really just 1 address range needed
+        // write memory ranges
         if self.trace_cnt == 0x0 {
             trace_dir.push("addresses.json");
             for block in qcontrol().memory_blocks() {
@@ -270,23 +247,54 @@ impl RootCauseTrace {
                     };
 
                     let json = serde_json::to_string(&addresses).context("json to string")?;
-                    if self.trace_cnt == 0x0 {
-                        bufwriter(&trace_dir)
-                            .and_then(|mut f| f.write_all(json.as_bytes()).context("write all"))?;
-                    } else {
-                        bufwriter_append(&trace_dir)
-                            .and_then(|mut f| f.write_all(json.as_bytes()).context("write all"))?;
-                    }
+
+                    bufwriter(&trace_dir)
+                        .and_then(|mut f| f.write_all(json.as_bytes()).context("write all"))?;
                 }
             }
 
             trace_dir.pop();
         }
 
+        // write crash / non_crash trace
+        let mut stream = match stop_reason {
+            StopReason::Crash { .. } => {
+                trace_dir.push(format!("crashes/{}-summary.bin", self.trace_cnt));
+                bufwriter(&trace_dir)
+            }
+            _ => {
+                trace_dir.push(format!("non_crashes/{}-summary.bin", self.trace_cnt));
+                bufwriter(&trace_dir)
+            }
+        }
+        .context("Unable to open trace file")?;
+
+        bincode::serialize_into(&mut stream, &trace).context("serialize trace")?;
+
+        trace_dir.pop();
+        // write detailed inst / register state information
+        let mut stream = match stop_reason {
+            StopReason::Crash { .. } => {
+                trace_dir.push(format!("{}-full.bin", self.trace_cnt));
+                bufwriter(&trace_dir)
+            }
+            _ => {
+                trace_dir.push(format!("{}-full.bin", self.trace_cnt));
+                bufwriter(&trace_dir)
+            }
+        }
+        .context("Unable to open detailed trace info file")?;
+
+        bincode::serialize_into(&mut stream, &self.detailed_trace_info)
+            .context("serialized detailed trace info")?;
+
+        trace_dir.pop();
+        trace_dir.pop();
+
         self.reset();
         self.trace_cnt += 1;
 
-        Ok(bincode::serialize_into(&mut stream, &trace)?)
+        Ok(())
     }
 
     fn reset(&mut self) {
@@ -295,6 +303,7 @@ impl RootCauseTrace {
         self.prev_ins_addr = 0;
         self.prev_edge_type = EdgeType::Unknown;
         self.reg_state = [0; Register::AMOUNT];
+        self.detailed_trace_info.clear();
     }
 
     pub fn on_memory_access(
@@ -353,7 +362,6 @@ impl RootCauseTrace {
     }
 
     pub fn on_instruction(&mut self, pc: u32) -> Result<()> {
-        // some initialization stuff after emulator has been inizialized and stuff
         if self.instructions.len() == 0x0 {
             self.first_address = pc;
         }
@@ -363,7 +371,7 @@ impl RootCauseTrace {
             self.update_instructions(self.prev_ins_addr)?;
         }
 
-        // only consider 4 byte because max inst length of ARMv-M is 32 bit
+        // only consider 4 byte because max inst length of ARMv7-M is 32 bit
         let edge_type = qcontrol()
             .memory_blocks()
             .find(|x| x.contains(pc))
@@ -433,6 +441,13 @@ impl RootCauseTrace {
                 }
             }
         }
+
+        self.detailed_trace_info.push((
+            pc as usize,
+            registers
+                .try_into()
+                .map_err(|_| anyhow!("register vec to array"))?,
+        ));
 
         Ok(())
     }

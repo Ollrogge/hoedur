@@ -3,7 +3,6 @@ use common::{config::fuzzware, log::LOG_DEBUG, log::LOG_INFO};
 use emulator::TraceType;
 use fuzzer::InputCategory;
 use modeling::fuzzware::runner::FuzzwareInstallation;
-use modeling::input::InputId;
 use std::path::PathBuf;
 
 const ARCHIVE: &str = "ARCHIVE";

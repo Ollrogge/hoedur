@@ -1,21 +1,10 @@
 use crate::cli::ExplorationArguments;
-use crate::coverage::{CoverageReport, CrashReason};
 use crate::Emulator;
 use anyhow::{Context, Result};
-use archive::{
-    create_archive,
-    tar::{write_file, write_serialized},
-    Archive, ArchiveBuilder,
-};
-use common::fs::{bufwriter, decoder};
-use core::arch;
+use archive::{create_archive, ArchiveBuilder};
 use fuzzer::Fuzzer;
-use fuzzer::{CorpusEntry, CorpusEntryKind, CorpusInputFile, IntoInputFileIter, Mode};
-use modeling::hardware::{Input, WriteTo};
-use modeling::input::{InputFile, InputId};
-use nix::libc::creat;
-use qemu_rs::Address;
-use std::path::{Path, PathBuf};
+use regex::Regex;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct ExplorationConfig {
@@ -39,8 +28,18 @@ impl ExplorationConfig {
 
     pub fn from_cli(name: &str, args: ExplorationArguments) -> Result<Self> {
         println!("Name?: {:?}", name);
-        let archive = create_archive(&args.archive_dir.archive_dir, "exploration", true, false)
-            .map(ArchiveBuilder::from)?;
+        let re = Regex::new(r"#(\d+)").context("regex")?;
+        let crash_id = re
+            .captures(args.import_corpus[0].to_str().unwrap())
+            .and_then(|caps| caps.get(1))
+            .context("get crash id from pathbuf")?;
+        let archive = create_archive(
+            &args.archive_dir.archive_dir,
+            &format!("crash-#{}.exploration", crash_id.as_str()),
+            true,
+            false,
+        )
+        .map(ArchiveBuilder::from)?;
 
         Ok(Self::new(
             archive,

@@ -1,13 +1,10 @@
-use anyhow::{anyhow, Context, Result};
-use archive::{create_archive, tar::write_file_raw, write_config, Archive, ArchiveBuilder};
+use anyhow::{Context, Result};
+use archive::{tar::write_file_raw, ArchiveBuilder};
 use modeling::hardware::WriteTo;
 use modeling::input::InputFile;
 use qemu_rs::Address;
 use std::collections::hash_map::DefaultHasher;
-use std::{
-    hash::{Hash, Hasher},
-    path::PathBuf,
-};
+use std::hash::{Hash, Hasher};
 
 use common::FxHashSet;
 

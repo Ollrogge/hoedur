@@ -1304,6 +1304,7 @@ dependencies = [
  "nix",
  "pretty_assertions",
  "qemu-rs",
+ "regex",
  "serde",
  "serde_yaml",
  "signal-hook",

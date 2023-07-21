@@ -290,7 +290,7 @@ impl Fuzzer {
         log::info!("Running exploration mode");
 
         while !EXIT.load(Ordering::Relaxed)
-            && self.exploration_mode.as_mut().unwrap().crashes_len() < 25
+            && self.exploration_mode.as_mut().unwrap().crashes_len() < 30
         {
             // random input for mutation
             let input = self
@@ -698,7 +698,7 @@ impl Fuzzer {
                 .unwrap()
                 .save_crash(exploration_cov, &result.hardware.input)?;
 
-            self.process_result(result, false);
+            self.process_result(result, false)?;
         } else if let StopReason::EndOfInput = result.stop_reason {
             let corpus_result = self.corpus.process_result(
                 InputResult::new(
@@ -715,6 +715,7 @@ impl Fuzzer {
                 true,
             )?;
 
+            // todo: uninteresting / shorter input might be useful as well ?
             if let CorpusResult::NewCoverage(_) = corpus_result {
                 let exploration_cov = ExplorationCoverage::new(
                     0,
