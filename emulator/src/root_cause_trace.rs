@@ -170,7 +170,7 @@ pub struct RootCauseTrace {
     trace_dir: Option<PathBuf>,
     trace_cnt: u64,
     cs: Capstone,
-    detailed_trace_info: Vec<(usize, [u32; Register::AMOUNT])>,
+    detailed_trace_info: Vec<Vec<u32>>,
 }
 
 impl RootCauseTrace {
@@ -366,9 +366,18 @@ impl RootCauseTrace {
             self.first_address = pc;
         }
 
-        // update Regular add type instruction after it has been executed
+        let registers: Result<Vec<_>> = Register::printable()
+            .iter()
+            .map(ToString::to_string)
+            .map(|x| Register::try_from(x.as_str()))
+            .map(|res_reg| res_reg.map(|reg| qcontrol().register(reg)))
+            .collect();
+
+        let registers = registers.context("failed to obtain registers")?;
+
+        // update Regular type instruction after it has been executed
         if self.prev_edge_type == EdgeType::Regular {
-            self.update_instructions(self.prev_ins_addr)?;
+            self.update_instructions(self.prev_ins_addr, &registers)?;
         }
 
         // only consider 4 byte because max inst length of ARMv7-M is 32 bit
@@ -389,28 +398,24 @@ impl RootCauseTrace {
         match edge_type {
             // regular edges are being handled after they have been executed
             EdgeType::Regular => (),
-            _ => self.update_instructions(pc)?,
+            // needed to handle cases e.g where a jmp jumps to a jmp ?
+            // or 2 returns
+            _ => self.update_instructions(pc, &registers)?,
         }
 
         if self.prev_ins_addr != 0x0 {
             self.update_edges(pc, edge_type.clone())?;
         }
 
+        assert!(registers[15] == pc);
+        self.detailed_trace_info.push(registers);
+
         self.prev_ins_addr = pc;
         self.prev_edge_type = edge_type;
         Ok(())
     }
 
-    fn update_instructions(&mut self, pc: u32) -> Result<()> {
-        let registers: Result<Vec<_>> = Register::printable()
-            .iter()
-            .map(ToString::to_string)
-            .map(|x| Register::try_from(x.as_str()))
-            .map(|res_reg| res_reg.map(|reg| qcontrol().register(reg)))
-            .collect();
-
-        let registers = registers.context("Unable to get register values")?;
-
+    fn update_instructions(&mut self, pc: u32, registers: &Vec<u32>) -> Result<()> {
         if !self.instructions.contains_key(&pc) {
             self.instructions
                 .insert(pc, InstructionData::new("".to_string()));
@@ -421,7 +426,7 @@ impl RootCauseTrace {
         if let Some(inst_data) = self.instructions.get_mut(&pc) {
             inst_data.count += 1;
             for i in 0..registers.len() {
-                // has register changed ?
+                // has a register changed its value ?
                 if self.reg_state[i] != registers[i] {
                     // update reg value in global state
                     self.reg_state[i] = registers[i];
@@ -442,13 +447,6 @@ impl RootCauseTrace {
             }
         }
 
-        self.detailed_trace_info.push((
-            pc as usize,
-            registers
-                .try_into()
-                .map_err(|_| anyhow!("register vec to array"))?,
-        ));
-
         Ok(())
     }
 
@@ -460,13 +458,14 @@ impl RootCauseTrace {
             };
 
             match self.edges.entry(edge) {
+                // new edge found
                 Entry::Vacant(entry) => {
-                    // todo: get type
                     entry.insert(EdgeInfo {
                         edge_type: edge_type,
                         count: 0,
                     });
                 }
+                // updated existing edge
                 Entry::Occupied(mut entry_wrapper) => {
                     let entry = entry_wrapper.get_mut();
                     entry.count += 1;
