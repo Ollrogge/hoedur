@@ -8,8 +8,9 @@ use qemu_rs::{memory::MemoryType, qcontrol, Address, Register, USize};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::{fmt::Debug, io::Write, path::Path, path::PathBuf};
+use std::{fmt::Debug, io::Write, ops::Range, path::Path, path::PathBuf};
 
+use rand::Rng;
 use serde_json;
 use trace_analysis::trace::{
     self, Memory as SerializedMemory, SerializedEdge, SerializedInstruction, SerializedTrace,
@@ -185,8 +186,9 @@ impl RootCauseTrace {
         let cs = Capstone::new()
             .arm()
             .mode(arm::ArchMode::Thumb)
+            .extra_mode([arch::arm::ArchExtraMode::MClass].iter().copied())
             .detail(true)
-            .endian(capstone::Endian::Little)
+            //.endian(capstone::Endian::Little)
             .build()
             .expect("failed to init capstone");
 
@@ -236,34 +238,41 @@ impl RootCauseTrace {
         // write memory ranges
         if self.trace_cnt == 0x0 {
             trace_dir.push("addresses.json");
+            let mut mem_ranges: MemoryAddresses = MemoryAddresses(HashMap::new());
             for block in qcontrol().memory_blocks() {
-                if block.name.contains("ram") {
-                    // define everything to be stack for now
-                    let addresses = MemoryAddresses {
-                        heap_start: 0x0,
-                        heap_end: 0x0,
-                        stack_start: block.start as usize,
-                        stack_end: block.start as usize + block.data.len(),
-                    };
-
-                    let json = serde_json::to_string(&addresses).context("json to string")?;
-
-                    bufwriter(&trace_dir)
-                        .and_then(|mut f| f.write_all(json.as_bytes()).context("write all"))?;
+                // todo: should also allow readonly block and then check in aurora
+                // for the type of instruction. e.g. a read of readonly is fine
+                // but a write is not
+                if !block.readonly {
+                    mem_ranges.0.insert(
+                        block.name,
+                        Range {
+                            start: block.start as usize,
+                            end: block.start as usize + block.data.len(),
+                        },
+                    );
                 }
             }
+            let json = serde_json::to_string(&mem_ranges).context("json to string")?;
+
+            bufwriter(&trace_dir)
+                .and_then(|mut f| f.write_all(json.as_bytes()).context("write all"))?;
 
             trace_dir.pop();
         }
 
         // write crash / non_crash trace
+        let mut rng = rand::thread_rng();
+        let random_number: u64 = rng.gen();
         let mut stream = match stop_reason {
-            StopReason::Crash { .. } => {
-                trace_dir.push(format!("crashes/{}-summary.bin", self.trace_cnt));
+            StopReason::RomWrite { .. }
+            | StopReason::NonExecutable { .. }
+            | StopReason::Crash { .. } => {
+                trace_dir.push(format!("crashes/{}-summary.bin", random_number));
                 bufwriter(&trace_dir)
             }
             _ => {
-                trace_dir.push(format!("non_crashes/{}-summary.bin", self.trace_cnt));
+                trace_dir.push(format!("non_crashes/{}-summary.bin", random_number));
                 bufwriter(&trace_dir)
             }
         }
@@ -275,11 +284,11 @@ impl RootCauseTrace {
         // write detailed inst / register state information
         let mut stream = match stop_reason {
             StopReason::Crash { .. } => {
-                trace_dir.push(format!("{}-full.bin", self.trace_cnt));
+                trace_dir.push(format!("{}-full.bin", random_number));
                 bufwriter(&trace_dir)
             }
             _ => {
-                trace_dir.push(format!("{}-full.bin", self.trace_cnt));
+                trace_dir.push(format!("{}-full.bin", random_number));
                 bufwriter(&trace_dir)
             }
         }
@@ -316,15 +325,11 @@ impl RootCauseTrace {
         size: u8,
     ) -> Result<()> {
         // disregard everything with more than 8 bytes similar to aurora
+        /*
         if access_type != AccessType::Write || size > 0x8 {
             return Ok(());
         }
-
-        // TODO: think about how to handle mmio accesses -> need to add it
-        // to memory ranges first
-        if memory_type == MemoryType::Mmio {
-            return Ok(());
-        }
+        */
 
         if size == 0x0 {
             log::info!("Memory access size 0? {:x}", pc);
@@ -375,32 +380,41 @@ impl RootCauseTrace {
 
         let registers = registers.context("failed to obtain registers")?;
 
-        // update Regular type instruction after it has been executed
-        if self.prev_edge_type == EdgeType::Regular {
-            self.update_instructions(self.prev_ins_addr, &registers)?;
-        }
-
         // only consider 4 byte because max inst length of ARMv7-M is 32 bit
-        let edge_type = qcontrol()
+        let (mnemonic, edge_type) = qcontrol()
             .memory_blocks()
             .find(|x| x.contains(pc))
             .and_then(|mem_block| {
+                let off = pc - mem_block.start;
                 self.cs
-                    .disasm_all(&mem_block.data[(pc as usize)..(pc as usize) + 4], 0)
+                    .disasm_all(&mem_block.data[(off as usize)..(off as usize) + 4], 0)
                     .ok()
             })
-            .and_then(|insts| match insts.iter().next() {
-                Some(inst) => Some(self.get_edge_type(inst)),
-                _ => None,
+            .and_then(|insts| {
+                insts.into_iter().next().map(|inst| {
+                    (
+                        Some(format!(
+                            "{} {}",
+                            inst.mnemonic().unwrap_or(""),
+                            inst.op_str().unwrap_or("")
+                        )),
+                        self.get_edge_type(&inst),
+                    )
+                })
             })
-            .unwrap_or(EdgeType::Unknown);
+            .unwrap_or((None, EdgeType::Unknown));
+
+        // update Regular type instruction after it has been executed
+        if self.prev_edge_type == EdgeType::Regular {
+            self.update_instructions(self.prev_ins_addr, &registers, mnemonic.clone())?;
+        }
 
         match edge_type {
             // regular edges are being handled after they have been executed
             EdgeType::Regular => (),
-            // needed to handle cases e.g where a jmp jumps to a jmp ?
+            // TODO: need to handle cases e.g where a jmp jumps to a jmp ?
             // or 2 returns
-            _ => self.update_instructions(pc, &registers)?,
+            _ => self.update_instructions(pc, &registers, mnemonic)?,
         }
 
         if self.prev_ins_addr != 0x0 {
@@ -415,18 +429,23 @@ impl RootCauseTrace {
         Ok(())
     }
 
-    fn update_instructions(&mut self, pc: u32, registers: &Vec<u32>) -> Result<()> {
+    fn update_instructions(
+        &mut self,
+        pc: u32,
+        registers: &Vec<u32>,
+        mnemonic: Option<String>,
+    ) -> Result<()> {
         if !self.instructions.contains_key(&pc) {
             self.instructions
-                .insert(pc, InstructionData::new("".to_string()));
+                .insert(pc, InstructionData::new(mnemonic.unwrap_or("".to_string())));
         }
 
-        // todo check if reg operand that is written to
-        // check if reg value changed OR reg is register operand that is written to
         if let Some(inst_data) = self.instructions.get_mut(&pc) {
             inst_data.count += 1;
             for i in 0..registers.len() {
                 // has a register changed its value ?
+                // todo: check if reg operand that is written to
+                // check if reg value changed OR reg is register operand that is written to
                 if self.reg_state[i] != registers[i] {
                     // update reg value in global state
                     self.reg_state[i] = registers[i];
@@ -508,6 +527,7 @@ impl RootCauseTrace {
                         if inst_detail.cc() != capstone::arch::arm::ArmCC::ARM_CC_AL {
                             return EdgeType::Conditional;
                         }
+                        // handle stuff like BNE (ARM_CC_NE)
                         for op in inst_detail.operands() {
                             match op.op_type {
                                 ArmOperandType::Imm(_) => return EdgeType::Direct,

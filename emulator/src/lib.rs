@@ -147,6 +147,7 @@ pub enum Limit {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum RunMode {
+    Setup,
     Normal,
     Leaf,
 }
@@ -221,8 +222,9 @@ impl<I: Input + Debug> EmulatorData<I> {
     fn post_run(
         &mut self,
         qemu_stop_reason: Option<qemu_rs::QemuStopReason>,
+        mode: RunMode,
     ) -> Result<ExecutionResult<I>> {
-        let bugs = self.debug.post_run(&self.stop)?;
+        let bugs = self.debug.post_run(&self.stop, mode)?;
 
         // update counts
         self.update_basic_block_count()?;
@@ -947,13 +949,13 @@ impl<I: Input + Debug> Emulator<I> {
             .context("prepare run")?;
 
         let stop_reason = match mode {
-            RunMode::Normal | RunMode::Leaf => qemu_rs::run()?,
+            RunMode::Setup | RunMode::Normal | RunMode::Leaf => qemu_rs::run()?,
         };
 
         let result = self
             .emudata
             .borrow_mut()
-            .post_run(stop_reason)
+            .post_run(stop_reason, mode)
             .context("post run");
         log::trace!("result = {:#x?}", result);
 

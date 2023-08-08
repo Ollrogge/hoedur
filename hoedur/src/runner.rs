@@ -378,7 +378,7 @@ pub fn run(config: RunnerConfig) -> Result<()> {
     log::info!("Running until first MMIO read from input ...");
     emulator.set_next_input_limits(EmulatorLimits::new());
     let result = emulator
-        .run(InputFile::default(), RunMode::Normal)
+        .run(InputFile::default(), RunMode::Setup)
         .context("run emulator with empty input")?;
     log::info!("Result: {}", result);
     let mut coverage = result.coverage;
@@ -404,7 +404,7 @@ pub fn run(config: RunnerConfig) -> Result<()> {
         let input = InputFile::read_from_slice(content)
             .with_context(|| format!("Failed to deserialize prefix input file {prefix_input:?}"))?;
         let result = emulator
-            .run(input, RunMode::Normal)
+            .run(input, RunMode::Setup)
             .context("run emulator")?;
         log::info!("Result: {}", result);
 
@@ -534,6 +534,7 @@ fn run_corpus_archive(mut emulator: Emulator, config: RunCorpusArchiveConfig) ->
     let mut error = false;
     let mut stop_reasons: FxHashMap<_, FxHashMap<Vec<_>, Vec<_>>> = FxHashMap::default();
 
+    let mut cnt = 0x0;
     for entry in corpus {
         signal_exit_point()?;
 
@@ -587,10 +588,14 @@ fn run_corpus_archive(mut emulator: Emulator, config: RunCorpusArchiveConfig) ->
 
         // restore emuator
         emulator.snapshot_restore(&pre_input);
+        cnt += 1;
     }
 
     // log stop reason, bugs : input summary
-    log::info!("Input Summary:");
+    log::info!(
+        "Input Summary, total amount of files executed: 0x{:02x}",
+        cnt
+    );
     for (stop_reason, bugs_inputs) in stop_reasons {
         for (bugs, inputs) in bugs_inputs {
             log::info!(

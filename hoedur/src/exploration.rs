@@ -9,6 +9,7 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub struct ExplorationConfig {
     pub archive: ArchiveBuilder,
+    pub output_dir: PathBuf,
     pub import_corpus: Vec<PathBuf>,
     pub prefix_input: Vec<PathBuf>,
 }
@@ -16,11 +17,13 @@ pub struct ExplorationConfig {
 impl ExplorationConfig {
     pub fn new(
         archive: ArchiveBuilder,
+        output_dir: PathBuf,
         import_corpus: Vec<PathBuf>,
         prefix_input: Vec<PathBuf>,
     ) -> Self {
         Self {
             archive,
+            output_dir,
             import_corpus,
             prefix_input,
         }
@@ -43,6 +46,7 @@ impl ExplorationConfig {
 
         Ok(Self::new(
             archive,
+            args.archive_dir.archive_dir,
             args.import_corpus,
             args.prefix.prefix_input,
         ))
@@ -59,7 +63,7 @@ pub fn run_fuzzer(emulator: Emulator, config: ExplorationConfig) -> Result<()> {
         config.archive.clone(),
         emulator,
     )?
-    .run_exploration(config.archive)?;
+    .run_exploration2(config.output_dir)?;
 
     Ok(())
 }

@@ -1,22 +1,18 @@
 use anyhow::{Context, Result};
 use archive::{tar::write_file_raw, ArchiveBuilder};
+use common::fs::bufwriter;
 use modeling::hardware::WriteTo;
 use modeling::input::InputFile;
 use qemu_rs::Address;
 use std::collections::hash_map::DefaultHasher;
+use std::fs;
 use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 
 use common::FxHashSet;
 
 #[derive(Debug, Clone, Hash)]
-pub struct ExplorationCoverage {
-    pc: Address,
-    ra: Address,
-    basic_blocks: usize,
-    mmio_read: usize,
-    mmio_write: usize,
-    input_stream_len: usize,
-}
+pub struct ExplorationCoverage {}
 
 impl ExplorationCoverage {
     pub fn new(
@@ -27,14 +23,7 @@ impl ExplorationCoverage {
         mmio_write: usize,
         input_stream_len: usize,
     ) -> ExplorationCoverage {
-        ExplorationCoverage {
-            pc,
-            ra,
-            basic_blocks,
-            mmio_read,
-            mmio_write,
-            input_stream_len,
-        }
+        ExplorationCoverage {}
     }
 
     pub fn get_hash(&self) -> u64 {
@@ -45,68 +34,99 @@ impl ExplorationCoverage {
 }
 
 pub struct ExplorationMode {
-    archive: ArchiveBuilder,
-    unique_crashes: FxHashSet<u64>,
+    output_dir: PathBuf,
+    unique_crashes: usize,
     // not crashing
-    unique_inputs: FxHashSet<u64>,
+    unique_inputs: usize,
+}
+
+fn create_dirs(output_dir: &PathBuf) -> Result<()> {
+    let crashes = output_dir.join("traces/crashes");
+    let non_crashes = output_dir.join("traces/non_crashes");
+
+    if crashes.is_dir() {
+        fs::remove_dir_all(crashes.clone()).context("remove crashes dir")?;
+    }
+
+    if non_crashes.is_dir() {
+        fs::remove_dir_all(non_crashes.clone()).context("remove non_crashes dir")?;
+    }
+
+    fs::create_dir_all(crashes)?;
+    fs::create_dir_all(non_crashes)?;
+
+    Ok(())
 }
 
 impl ExplorationMode {
-    pub fn new(archive: ArchiveBuilder) -> Result<Self> {
+    pub fn new(output_dir: PathBuf) -> Result<Self> {
+        create_dirs(&output_dir)?;
+
         Ok(ExplorationMode {
-            archive,
-            unique_crashes: FxHashSet::default(),
-            unique_inputs: FxHashSet::default(),
+            output_dir,
+            unique_crashes: 0,
+            unique_inputs: 0,
         })
     }
 
     pub fn crashes_len(&self) -> usize {
-        self.unique_crashes.len()
+        self.unique_crashes
+    }
+
+    pub fn non_crashes_len(&self) -> usize {
+        self.unique_inputs
     }
 
     pub fn inputs_len(&self) -> usize {
-        self.unique_inputs.len()
+        self.unique_inputs
     }
 
-    pub fn save_crash(&mut self, cov: ExplorationCoverage, f: &InputFile) -> Result<()> {
-        if self.unique_crashes.insert(cov.get_hash()) {
-            /*
-            println!(
-                "Found another crash: pc:{} ra:{}, basic blocks: {}, input stream length: {}",
-                cov.pc, cov.ra, cov.basic_blocks, cov.input_stream_len,
-            );
-            */
-
-            return write_file_raw(
-                &mut self.archive.borrow_mut(),
-                &format!("crash/input-{}.bin", f.id()),
-                f.write_size()?,
-                0,
-                |writer| f.write_to(writer),
-            )
-            .context("Failed to save crashing input");
-        }
-        log::info!("Crashing archive len: {}", self.unique_crashes.len());
-        Ok(())
-    }
-
-    pub fn save_input(&mut self, cov: ExplorationCoverage, f: &InputFile) -> Result<()> {
-        // todo find a better way to reduce crashing input amount
-        // check how AFL does it
-        if self.unique_crashes.len() * 2 < self.unique_inputs.len() {
+    pub fn save_crash(&mut self, f: &InputFile) -> Result<()> {
+        if self.non_crashes_len() * 10 < self.crashes_len() {
             return Ok(());
         }
-        if self.unique_inputs.insert(cov.get_hash()) {
-            return write_file_raw(
-                &mut self.archive.borrow_mut(),
-                &format!("input/input-{}.bin", f.id()),
-                f.write_size()?,
-                0,
-                |writer| f.write_to(writer),
-            )
-            .context("Failed to save non crashing input");
+        let crash_path = self
+            .output_dir
+            .join(format!("traces/crashes/input-{}.bin", f.id()));
+
+        self.unique_crashes += 1;
+        /*
+        println!(
+            "Found another crash: pc:{} ra:{}, basic blocks: {}, input stream length: {}",
+            cov.pc, cov.ra, cov.basic_blocks, cov.input_stream_len,
+        );
+        */
+
+        let writer = bufwriter(&crash_path).context("unable to create writer for crash path")?;
+
+        return f.write_to(writer).context("failed to write crashing input");
+    }
+
+    pub fn save_input(&mut self, f: &InputFile) -> Result<()> {
+        // todo find a better way to reduce crashing input amount
+        // check how AFL does it
+
+        /*
+        if self.unique_crashes.len() * 10 < self.unique_inputs.len() {
+            return Ok(());
         }
-        log::info!("None crashing archive len: {}", self.unique_inputs.len());
-        Ok(())
+        */
+
+        /*
+        println!(
+            "Found another input: pc:{} ra:{}, basic blocks: {}, input stream length: {}",
+            cov.pc, cov.ra, cov.basic_blocks, cov.input_stream_len,
+        );
+        */
+        let non_crash_path = self
+            .output_dir
+            .join(format!("traces/non_crashes/input-{}.bin", f.id()));
+
+        let writer =
+            bufwriter(&non_crash_path).context("unable to create writer for crash path")?;
+
+        self.unique_inputs += 1;
+
+        return f.write_to(writer).context("failed to write crashing input");
     }
 }

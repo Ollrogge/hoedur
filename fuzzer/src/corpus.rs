@@ -448,6 +448,10 @@ impl Corpus {
         self.inputs.get(&id)
     }
 
+    pub fn size(&mut self) -> usize {
+        self.inputs.len()
+    }
+
     pub(crate) fn random_stream_index(
         &mut self,
         id: InputId,
@@ -466,6 +470,10 @@ impl Corpus {
                 .get(&id)
                 .context("Input for random input id is missing")
         })
+    }
+
+    pub fn get_input(&self, id: &InputId) -> Result<&InputInfo> {
+        self.inputs.get(id).context("Input for id is missing")
     }
 
     pub fn inputs(&self) -> impl Iterator<Item = &InputInfo> {

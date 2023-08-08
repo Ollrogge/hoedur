@@ -24,7 +24,7 @@ use crate::{
         debug::DebugHook,
     },
     root_cause_trace::RootCauseTrace,
-    StopReason,
+    RunMode, StopReason,
 };
 
 use super::{EmulatorData, ExitHook, TraceType};
@@ -240,18 +240,17 @@ impl EmulatorDebugData {
     pub(crate) fn post_run(
         &mut self,
         stop_reason: &Option<StopReason>,
+        mode: RunMode,
     ) -> Result<Option<Vec<Bug>>> {
         if !self.enabled() {
             return Ok(None);
         }
 
-        if self.trace_type() == TraceType::RootCause {
-            if let Some(trace_file) = &mut self.trace_file {
-                self.root_cause_trace
-                    .as_mut()
-                    .unwrap()
-                    .post_run(stop_reason)?;
-            }
+        if self.trace_type() == TraceType::RootCause && mode != RunMode::Setup {
+            self.root_cause_trace
+                .as_mut()
+                .unwrap()
+                .post_run(stop_reason)?;
         }
 
         // call custom hooks
