@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::{fmt::Debug, io::Write, ops::Range, path::Path, path::PathBuf};
+use trace_analysis::register::ArchRegister;
 
 use rand::Rng;
 use serde_json;
@@ -156,16 +157,14 @@ impl InstructionData {
     }
 }
 
-// decided for HashMap and not BtreeMap which would be closer to std::map they use
-// since I expect a lot of instructions to be executed multiple times ? in this
-// case O(1) lookup seems nice.
-// todo: need to sort stuff in the end though if needed
 pub struct RootCauseTrace {
     instructions: FxHashMap<Address, InstructionData>,
     edges: FxHashMap<Edge, EdgeInfo>,
     reg_state: [u32; Register::AMOUNT],
     prev_edge_type: EdgeType,
     prev_ins_addr: Address,
+    prev_mnemonic: Option<String>,
+    prev_regs_written: Vec<Register>,
     first_address: Address,
     image_base: Address,
     trace_dir: Option<PathBuf>,
@@ -198,6 +197,8 @@ impl RootCauseTrace {
             reg_state: [0; Register::AMOUNT],
             prev_edge_type: EdgeType::Unknown,
             prev_ins_addr: 0,
+            prev_mnemonic: None,
+            prev_regs_written: vec![],
             first_address: 0,
             image_base: 0,
             trace_dir,
@@ -311,6 +312,8 @@ impl RootCauseTrace {
         self.edges.clear();
         self.prev_ins_addr = 0;
         self.prev_edge_type = EdgeType::Unknown;
+        self.prev_regs_written = vec![];
+        self.prev_mnemonic = None;
         self.reg_state = [0; Register::AMOUNT];
         self.detailed_trace_info.clear();
     }
@@ -381,7 +384,7 @@ impl RootCauseTrace {
         let registers = registers.context("failed to obtain registers")?;
 
         // only consider 4 byte because max inst length of ARMv7-M is 32 bit
-        let (mnemonic, edge_type) = qcontrol()
+        let (mnemonic, edge_type, regs_written) = qcontrol()
             .memory_blocks()
             .find(|x| x.contains(pc))
             .and_then(|mem_block| {
@@ -392,40 +395,72 @@ impl RootCauseTrace {
             })
             .and_then(|insts| {
                 insts.into_iter().next().map(|inst| {
+                    let regs_written = self
+                        .cs
+                        .insn_detail(&inst)
+                        .and_then(|detail| {
+                            Ok(detail
+                                .regs_write()
+                                .iter()
+                                .filter_map(|&reg_id| self.cs.reg_name(reg_id))
+                                .collect::<Vec<_>>())
+                        })
+                        .unwrap_or(vec![]);
+
                     (
                         Some(format!(
                             "{} {}",
                             inst.mnemonic().unwrap_or(""),
-                            inst.op_str().unwrap_or("")
+                            inst.op_str().unwrap_or(""),
                         )),
                         self.get_edge_type(&inst),
+                        regs_written,
                     )
                 })
             })
-            .unwrap_or((None, EdgeType::Unknown));
+            .unwrap_or((None, EdgeType::Unknown, vec![]));
 
+        //println!("Regs written0: {:?} {:x}", regs_written, pc);
+        let regs_written = regs_written
+            .iter()
+            .map(|x| Register::try_from(x.as_str()))
+            .collect::<Result<Vec<_>>>()
+            .unwrap_or(vec![]);
+
+        // update register state to prevent false positives due to special arm
+        // instructions that restore register values and return e.g:
+        // pop        {type,r4,r5,r6,r7,pc}
+        if self.prev_edge_type == EdgeType::Return {
+            for i in 0..registers.len() {
+                self.reg_state[i] = registers[i];
+            }
+        }
         // update Regular type instruction after it has been executed
         if self.prev_edge_type == EdgeType::Regular {
-            self.update_instructions(self.prev_ins_addr, &registers, mnemonic.clone())?;
+            self.update_instructions(
+                self.prev_ins_addr,
+                &registers,
+                self.prev_mnemonic.clone(),
+                self.prev_regs_written.clone(),
+            )?;
         }
 
         match edge_type {
             // regular edges are being handled after they have been executed
-            EdgeType::Regular => (),
-            // TODO: need to handle cases e.g where a jmp jumps to a jmp ?
-            // or 2 returns
-            _ => self.update_instructions(pc, &registers, mnemonic)?,
+            EdgeType::Regular => self.prev_mnemonic = mnemonic,
+            _ => self.update_instructions(pc, &registers, mnemonic, regs_written.clone())?,
         }
 
+        // update edge after it has been taken, so prev_edge_type
         if self.prev_ins_addr != 0x0 {
-            self.update_edges(pc, edge_type.clone())?;
+            self.update_edges(self.prev_ins_addr, pc, self.prev_edge_type.clone())?;
         }
 
-        assert!(registers[15] == pc);
         self.detailed_trace_info.push(registers);
 
         self.prev_ins_addr = pc;
         self.prev_edge_type = edge_type;
+        self.prev_regs_written = regs_written;
         Ok(())
     }
 
@@ -434,19 +469,23 @@ impl RootCauseTrace {
         pc: u32,
         registers: &Vec<u32>,
         mnemonic: Option<String>,
+        regs_written: Vec<Register>,
     ) -> Result<()> {
+        //println!("Regs written: {:?} 0x{:x} {:?}", regs_written, pc, mnemonic);
+
         if !self.instructions.contains_key(&pc) {
             self.instructions
                 .insert(pc, InstructionData::new(mnemonic.unwrap_or("".to_string())));
         }
 
+        let regs_written = regs_written.iter().map(|&r| r as usize).collect::<Vec<_>>();
+
         if let Some(inst_data) = self.instructions.get_mut(&pc) {
             inst_data.count += 1;
             for i in 0..registers.len() {
-                // has a register changed its value ?
-                // todo: check if reg operand that is written to
                 // check if reg value changed OR reg is register operand that is written to
-                if self.reg_state[i] != registers[i] {
+                // why also when it is written to: for branches where pc is written
+                if self.reg_state[i] != registers[i] || regs_written.contains(&i) {
                     // update reg value in global state
                     self.reg_state[i] = registers[i];
 
@@ -469,34 +508,40 @@ impl RootCauseTrace {
         Ok(())
     }
 
-    fn update_edges(&mut self, pc: u32, edge_type: EdgeType) -> Result<()> {
-        if self.prev_ins_addr != 0 {
-            let edge = Edge {
-                from: self.prev_ins_addr,
-                to: pc,
-            };
+    fn update_edges(&mut self, prev_pc: u32, pc: u32, edge_type: EdgeType) -> Result<()> {
+        let edge = Edge {
+            from: prev_pc,
+            to: pc,
+        };
 
-            match self.edges.entry(edge) {
-                // new edge found
-                Entry::Vacant(entry) => {
-                    entry.insert(EdgeInfo {
-                        edge_type: edge_type,
-                        count: 0,
-                    });
-                }
-                // updated existing edge
-                Entry::Occupied(mut entry_wrapper) => {
-                    let entry = entry_wrapper.get_mut();
-                    entry.count += 1;
-                    if edge_type != entry.edge_type {
-                        log::info!("Edge {:x} -> {:x} differs from the stored one. Type1: {:?}, Type2: {:?}", edge.from, edge.to, entry.edge_type, edge_type)
-                    }
+        match self.edges.entry(edge) {
+            // new edge found
+            Entry::Vacant(entry) => {
+                entry.insert(EdgeInfo {
+                    edge_type: edge_type,
+                    count: 0,
+                });
+            }
+            // updated existing edge
+            Entry::Occupied(mut entry_wrapper) => {
+                let entry = entry_wrapper.get_mut();
+                entry.count += 1;
+                if edge_type != entry.edge_type {
+                    log::info!(
+                        "Edge {:x} -> {:x} differs from the stored one. Type1: {:?}, Type2: {:?}",
+                        edge.from,
+                        edge.to,
+                        entry.edge_type,
+                        edge_type
+                    );
+
+                    assert!(edge_type == entry.edge_type);
                 }
             }
         }
 
         // add last successor information to previous instruction
-        if let Some(inst_data) = self.instructions.get_mut(&self.prev_ins_addr) {
+        if let Some(inst_data) = self.instructions.get_mut(&prev_pc) {
             inst_data.last_successor = pc;
         }
         Ok(())
@@ -513,7 +558,7 @@ impl RootCauseTrace {
 
             id if id == ArmInsn::ARM_INS_BL as u32
                 || id == ArmInsn::ARM_INS_B as u32
-                || id == ArmInsn::ARM_INS_BIC as u32
+                //|| id == ArmInsn::ARM_INS_BIC as u32
                 || id == ArmInsn::ARM_INS_CBZ as u32
                 || id == ArmInsn::ARM_INS_CBNZ as u32
                 || id == ArmInsn::ARM_INS_TBH as u32

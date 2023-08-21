@@ -12,6 +12,7 @@ pub struct ExplorationConfig {
     pub output_dir: PathBuf,
     pub import_corpus: Vec<PathBuf>,
     pub prefix_input: Vec<PathBuf>,
+    pub duration: u64,
 }
 
 impl ExplorationConfig {
@@ -20,12 +21,14 @@ impl ExplorationConfig {
         output_dir: PathBuf,
         import_corpus: Vec<PathBuf>,
         prefix_input: Vec<PathBuf>,
+        duration: u64,
     ) -> Self {
         Self {
             archive,
             output_dir,
             import_corpus,
             prefix_input,
+            duration,
         }
     }
 
@@ -44,11 +47,17 @@ impl ExplorationConfig {
         )
         .map(ArchiveBuilder::from)?;
 
+        let duration = args
+            .duration
+            .parse::<u64>()
+            .context("unable to parse exploration duration to u64")?;
+
         Ok(Self::new(
             archive,
             args.archive_dir.archive_dir,
             args.import_corpus,
             args.prefix.prefix_input,
+            duration,
         ))
     }
 }
@@ -63,7 +72,7 @@ pub fn run_fuzzer(emulator: Emulator, config: ExplorationConfig) -> Result<()> {
         config.archive.clone(),
         emulator,
     )?
-    .run_exploration2(config.output_dir)?;
+    .run_exploration3(config.output_dir, config.duration)?;
 
     Ok(())
 }

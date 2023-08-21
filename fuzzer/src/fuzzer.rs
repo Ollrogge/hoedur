@@ -1,12 +1,15 @@
 use std::{
+    iter,
     path::{Path, PathBuf},
     rc::Rc,
     sync::atomic::Ordering,
+    time::{SystemTime, UNIX_EPOCH},
     vec,
 };
 
 use crate::exploration::{ExplorationCoverage, ExplorationMode};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use archive::{
@@ -31,10 +34,17 @@ use common::{
     hashbrown::HashSet,
     random::{DeriveRandomSeed, FastRand},
     time::epoch,
+    FxHashMap,
 };
 use emulator::{Emulator, EmulatorSnapshot, ExecutionResult, RunMode, StopReason};
 use enum_index::IndexEnum;
-use modeling::input::{stream::Stream, InputContext, InputFile, InputId};
+use modeling::{
+    input::{
+        stream::{InputStream, Stream},
+        InputContext, InputFile, InputId, StreamContext,
+    },
+    mmio::AccessContext,
+};
 use rand_distr::{Distribution, WeightedAliasIndex};
 
 use crate::{
@@ -288,7 +298,143 @@ impl Fuzzer {
         self.write_statistics()
     }
 
-    pub fn run_exploration2(&mut self, output_dir: PathBuf) -> Result<()> {
+    fn search_interesting_context(
+        &mut self,
+        base_input: &InputInfo,
+        base_access_log: &Vec<InputContext>,
+        iterations: usize,
+        interesting_contexts: &mut Vec<InputContext>,
+    ) -> Result<()> {
+        let is_subset = |subset: &Vec<_>, superset: &Vec<_>| -> bool {
+            subset.iter().all(|item| superset.contains(item))
+        };
+
+        let input_streams = base_input.fork().file().input_streams().clone();
+
+        for _ in 0..iterations {
+            for context in input_streams.keys() {
+                match context.context() {
+                    StreamContext::AccessContext { .. } | StreamContext::MmioContext { .. } => (),
+                    _ => continue,
+                }
+
+                self.emulator.snapshot_restore(&self.pre_fuzzing.clone());
+
+                let mutation_context = MutationContext::Mono {
+                    context: context.clone(),
+                };
+
+                let mut input = base_input.fork();
+                let random_seed = self
+                    .seed
+                    .derive(&SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs());
+                input.file_mut().set_random_seed(random_seed);
+
+                let mutation_res = self.mutate_stream(&mut input, mutation_context)?;
+                // no viable mutation found
+                if mutation_res.is_none() {
+                    println!("Mutation failed");
+                    continue;
+                }
+
+                let result = self
+                    .emulator
+                    .run(input.into_inner(), RunMode::Leaf)
+                    .context("run emulator")?;
+
+                //println!("Stop reason: {:?}", result.stop_reason);
+
+                match result.stop_reason {
+                    StopReason::Crash { .. } => {}
+                    // transition from crash -> no_crash
+                    StopReason::EndOfInput => {
+                        // MMIO access log should be subset of initial crashing input log
+                        if is_subset(&base_access_log, &result.hardware.access_log)
+                            && !interesting_contexts.contains(&context)
+                        {
+                            interesting_contexts.push(context.clone());
+                            println!(
+                                "Found interesting context: {:?} {}",
+                                context,
+                                interesting_contexts.len()
+                            );
+                            return Ok(());
+                        }
+                    }
+                    _ => (),
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn run_exploration3(&mut self, output_dir: PathBuf, duration: u64) -> Result<()> {
+        let input_id = unsafe { InputId::new(1) };
+
+        let base_input = self
+            .get_input(&input_id)
+            .context("failed to get next corpus input")?
+            .clone();
+
+        let input = base_input.fork();
+
+        let input_stream_cnt = input.file().input_streams().len();
+        println!("Input streams {:?}", input.file().input_streams());
+        println!("Input stream len: {:?}", input_stream_cnt,);
+
+        let initial_res = self
+            .emulator
+            .run(input.clone().into_inner(), RunMode::Leaf)
+            .context("run emulator")?;
+
+        // init exploration mode and save initial crash
+        self.exploration_mode = Some(ExplorationMode::new(output_dir)?);
+        self.mode = Mode::EXPLORATION;
+        let initial_crash_file = self.get_input(&input_id)?.result().file().clone();
+        self.exploration_mode
+            .as_mut()
+            .unwrap()
+            .save_crash(&initial_crash_file)?;
+
+        let start = Instant::now();
+        let end = Duration::from_secs(duration * 60);
+        let mut interesting_contexts = Vec::new();
+
+        while !EXIT.load(Ordering::Relaxed) && Instant::now().duration_since(start) < end {
+            let iterations = if interesting_contexts.len() == 0 {
+                usize::MAX
+            } else {
+                3
+            };
+
+            self.search_interesting_context(
+                &base_input,
+                &initial_res.hardware.access_log,
+                iterations,
+                &mut interesting_contexts,
+            )?;
+
+            for context in interesting_contexts.iter() {
+                self.static_mutation_context = Some(context.clone());
+                for _ in 0..0x10 {
+                    let input = base_input.fork();
+                    self.run_mutations(input, None, &self.pre_fuzzing.clone())?;
+
+                    log::info!(
+                        "Crash len: {}, Non_crash len: {}",
+                        self.exploration_mode.as_ref().unwrap().crashes_len(),
+                        self.exploration_mode.as_ref().unwrap().non_crashes_len()
+                    );
+                }
+            }
+            self.static_mutation_context = None;
+        }
+
+        Ok(())
+    }
+
+    pub fn run_exploration2(&mut self, output_dir: PathBuf, duration: u64) -> Result<()> {
         println!("Corpus size: {}", self.corpus.size());
 
         let input_id = unsafe { InputId::new(1) };
@@ -340,15 +486,33 @@ impl Fuzzer {
                 .run(input.into_inner(), RunMode::Leaf)
                 .context("run emulator")?;
 
+            let is_subset = |subset: &Vec<_>, superset: &Vec<_>| -> bool {
+                subset.iter().all(|item| superset.contains(item))
+            };
+
             match result.stop_reason {
                 StopReason::Crash { .. } => {}
                 StopReason::EndOfInput => {
-                    //let access_set: HashSet<_> =   HashSet::from_iter(result.hardware.access_log.clone());
+                    if is_subset(
+                        &initial_res.hardware.access_log,
+                        &result.hardware.access_log,
+                    ) {
+                        println!("Found interesting context: {:?}", context);
+                        interesting_context = Some(context);
+                    }
+
+                    /*
                     // only when all hardware accesses match, we consider the input
                     if result.hardware.access_log == initial_res.hardware.access_log {
+                        println!("Found interesting context: {:?}", context);
+                        println!(
+                            "Coverage log: result: {:?} initial: {:?}",
+                            result.counts, initial_res.counts
+                        );
                         interesting_context = Some(context);
-                        break;
+                        //break;
                     }
+                    */
                 }
                 _ => (),
             }
@@ -369,11 +533,10 @@ impl Fuzzer {
             .unwrap()
             .save_crash(&initial_crash_file)?;
 
+        let start = Instant::now();
+        let end = Duration::from_secs(duration * 60);
         //start actual exploration
-        while !EXIT.load(Ordering::Relaxed)
-            && self.exploration_mode.as_ref().unwrap().crashes_len() < 50
-            && self.exploration_mode.as_ref().unwrap().non_crashes_len() < 50
-        {
+        while !EXIT.load(Ordering::Relaxed) && Instant::now().duration_since(start) < end {
             input = self
                 .get_input(&input_id)
                 .context("failed to get next corpus input")?
@@ -403,17 +566,29 @@ impl Fuzzer {
         Ok(())
     }
 
-    pub fn run_exploration(&mut self, output_dir: PathBuf) -> Result<()> {
+    pub fn run_exploration(&mut self, output_dir: PathBuf, duration: u64) -> Result<()> {
         self.exploration_mode = Some(ExplorationMode::new(output_dir)?);
         self.mode = Mode::EXPLORATION;
         log::info!("Running exploration mode");
+        let start = Instant::now();
+        let end = Duration::from_secs(duration * 60);
+        let input_id = unsafe { InputId::new(1) };
 
-        while !EXIT.load(Ordering::Relaxed) {
+        let base_input = self
+            .get_input(&input_id)
+            .context("failed to get next corpus input")?
+            .clone();
+
+        while !EXIT.load(Ordering::Relaxed) && Instant::now().duration_since(start) < end {
             // random input for mutation
+            /*
             let input = self
                 .next_input()
                 .context("Failed to get random input.")?
                 .fork();
+            */
+
+            let input = base_input.fork();
 
             self.run_mutations(input, None, &self.pre_fuzzing.clone())?;
 
@@ -739,6 +914,7 @@ impl Fuzzer {
         context: MutationContext,
     ) -> Result<Option<MutationLog>> {
         for _ in 0..MAX_RETRY {
+            // target = index into the stream specified by context
             if let Some(target) = self.mutation_target(input, &context)? {
                 if let Some(mutation) = self.random_mutation(input, target)? {
                     let effective = mutation.apply(input)?;
@@ -840,73 +1016,33 @@ impl Fuzzer {
             false,
         )?;
 
-        let explr_cov = match result.stop_reason {
-            StopReason::Crash { pc, ra, .. } => Some(ExplorationCoverage::new(
-                pc,
-                ra,
-                result.counts.basic_block(),
-                result.counts.mmio_read(),
-                result.counts.mmio_write(),
-                result.hardware.input.input_streams().len(),
-            )),
-            StopReason::NonExecutable { pc } => Some(ExplorationCoverage::new(
-                pc,
-                0,
-                result.counts.basic_block(),
-                result.counts.mmio_read(),
-                result.counts.mmio_write(),
-                result.hardware.input.input_streams().len(),
-            )),
-            StopReason::RomWrite { pc, .. } => Some(ExplorationCoverage::new(
-                pc,
-                0,
-                result.counts.basic_block(),
-                result.counts.mmio_read(),
-                result.counts.mmio_write(),
-                result.hardware.input.input_streams().len(),
-            )),
-            StopReason::EndOfInput => Some(ExplorationCoverage::new(
-                0,
-                0,
-                result.counts.basic_block(),
-                result.counts.mmio_read(),
-                result.counts.mmio_write(),
-                result.hardware.input.input_streams().len(),
-            )),
+        let input = match corpus_result {
+            CorpusResult::ShorterInput(result) => Some(result.clone()),
+            CorpusResult::NewCoverage(info) => Some(info.result().clone()),
             _ => None,
         };
 
-        if let Some(cov) = explr_cov {
-            let input = match corpus_result {
-                CorpusResult::ShorterInput(result) => Some(result.clone()),
-                CorpusResult::NewCoverage(info) => Some(info.result().clone()),
-                _ => None,
-            };
+        if let Some(mut input) = input {
+            // shorten input
+            input.file_mut().remove_unread_values();
+            input.file_mut().remove_empty_streams();
 
-            if let Some(mut input) = input {
-                // shorten input
-                input.file_mut().remove_unread_values();
-                input.file_mut().remove_empty_streams();
-
-                match result.stop_reason {
-                    StopReason::Crash { .. }
-                    | StopReason::NonExecutable { .. }
-                    | StopReason::RomWrite { .. } => {
-                        self.exploration_mode
-                            .as_mut()
-                            .unwrap()
-                            .save_crash(&input.file())?;
-
-                        return self.process_result(result, import);
-                    }
-                    StopReason::EndOfInput => {
-                        self.exploration_mode
-                            .as_mut()
-                            .unwrap()
-                            .save_input(&input.file())?;
-                    }
-                    _ => (),
+            match result.stop_reason {
+                StopReason::Crash { .. }
+                | StopReason::NonExecutable { .. }
+                | StopReason::RomWrite { .. } => {
+                    self.exploration_mode
+                        .as_mut()
+                        .unwrap()
+                        .save_crash(&input.file())?;
                 }
+                StopReason::EndOfInput => {
+                    self.exploration_mode
+                        .as_mut()
+                        .unwrap()
+                        .save_input(&input.file())?;
+                }
+                _ => (),
             }
         }
 

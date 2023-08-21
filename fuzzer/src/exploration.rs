@@ -15,14 +15,7 @@ use common::FxHashSet;
 pub struct ExplorationCoverage {}
 
 impl ExplorationCoverage {
-    pub fn new(
-        pc: Address,
-        ra: Address,
-        basic_blocks: usize,
-        mmio_read: usize,
-        mmio_write: usize,
-        input_stream_len: usize,
-    ) -> ExplorationCoverage {
+    pub fn new() -> ExplorationCoverage {
         ExplorationCoverage {}
     }
 
@@ -82,20 +75,11 @@ impl ExplorationMode {
     }
 
     pub fn save_crash(&mut self, f: &InputFile) -> Result<()> {
-        if self.non_crashes_len() * 10 < self.crashes_len() {
-            return Ok(());
-        }
         let crash_path = self
             .output_dir
             .join(format!("traces/crashes/input-{}.bin", f.id()));
 
         self.unique_crashes += 1;
-        /*
-        println!(
-            "Found another crash: pc:{} ra:{}, basic blocks: {}, input stream length: {}",
-            cov.pc, cov.ra, cov.basic_blocks, cov.input_stream_len,
-        );
-        */
 
         let writer = bufwriter(&crash_path).context("unable to create writer for crash path")?;
 
@@ -103,21 +87,6 @@ impl ExplorationMode {
     }
 
     pub fn save_input(&mut self, f: &InputFile) -> Result<()> {
-        // todo find a better way to reduce crashing input amount
-        // check how AFL does it
-
-        /*
-        if self.unique_crashes.len() * 10 < self.unique_inputs.len() {
-            return Ok(());
-        }
-        */
-
-        /*
-        println!(
-            "Found another input: pc:{} ra:{}, basic blocks: {}, input stream length: {}",
-            cov.pc, cov.ra, cov.basic_blocks, cov.input_stream_len,
-        );
-        */
         let non_crash_path = self
             .output_dir
             .join(format!("traces/non_crashes/input-{}.bin", f.id()));

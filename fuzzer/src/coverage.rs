@@ -12,8 +12,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub struct Feature(usize);
 
+// 4
 const HIT_BUCKET_BITS: usize = hit_bucket_bits();
 
+// returns 4
 const fn hit_bucket_bits() -> usize {
     let mut i = 0;
 

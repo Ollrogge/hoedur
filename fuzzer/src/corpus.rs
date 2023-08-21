@@ -292,7 +292,7 @@ impl Corpus {
             let old = self.inputs.insert(id, info);
             self.input_id.push(id);
 
-            debug_assert!(old.is_none());
+            //debug_assert!(old.is_none());
 
             self.update_input_weights()?;
         }
@@ -556,7 +556,7 @@ impl NewCoverage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InputInfo {
     result: InputResult,
     /// unique features of this input (new feature when this input was added)

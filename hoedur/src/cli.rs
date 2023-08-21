@@ -99,6 +99,10 @@ pub struct ExplorationArguments {
     /// Path to exploration archive to be created
     #[command(flatten)]
     pub archive_dir: ArchiveDir,
+
+    /// Duration for how long to run exploration mode in minutes
+    #[arg(short, long, default_value = "1")]
+    pub duration: String,
 }
 
 #[derive(Args, Debug)]
