@@ -1,6 +1,67 @@
 use std::convert::TryFrom;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionCode {
+    EQ,
+    NE,
+    CS,
+    CC,
+    MI,
+    PL,
+    VS,
+    VC,
+    HI,
+    LS,
+    GE,
+    LT,
+    GT,
+    LE,
+    AL,
+}
+
+pub enum FlagBits {
+    N, // sign
+    Z, // zero
+    C, // carry
+    V, // overflow
+}
+
+impl FlagBits {
+    pub fn to_bit_index(&self) -> usize {
+        match *self {
+            FlagBits::N => 31,
+            FlagBits::Z => 30,
+            FlagBits::C => 29,
+            FlagBits::V => 28,
+        }
+    }
+}
+
+impl TryFrom<&str> for ConditionCode {
+    type Error = anyhow::Error;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        Ok(match s.to_uppercase().as_str() {
+            "EQ" => Self::EQ,
+            "NE" => Self::NE,
+            "CS" => Self::CS,
+            "CC" => Self::CC,
+            "MI" => Self::MI,
+            "PL" => Self::PL,
+            "VS" => Self::VS,
+            "VC" => Self::VC,
+            "HI" => Self::HI,
+            "LS" => Self::LS,
+            "GE" => Self::GE,
+            "LT" => Self::LT,
+            "GT" => Self::GT,
+
+            register => anyhow::bail!("unknown condition flag {:?}", register),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum Register {
     // General-purpose registers
@@ -187,7 +248,6 @@ impl TryFrom<&str> for Register {
             "PC" => Self::PC,
 
             // Special-purpose program status registers (Cortex-M)
-            "xPSR" => Self::xPSR,
             "XPSR" => Self::xPSR,
 
             // Current Program Status register

@@ -46,7 +46,7 @@ def run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash
     cmd += ["exploration"]
     cmd += ['--archive-dir', output_dir]
     cmd += ['--import-corpus', crash_archive]
-    cmd += ['--duration', '10']
+    cmd += ['--duration', '3']
     run(cmd)
 
 def run_trace(args):
@@ -60,7 +60,7 @@ def run_trace(args):
 
     run(cmd)
 
-def run_traces(output_dir, input_id, crash_archive):
+def run_traces(output_dir, input_id, crash_archive, single = False):
     if os.path.exists(f"{output_dir}/crash-#{input_id}.exploration.corpus.tar.zst"):
         os.remove(f"{output_dir}/crash-#{input_id}.exploration.corpus.tar.zst")
 
@@ -80,23 +80,20 @@ def run_traces(output_dir, input_id, crash_archive):
     print("[+] concurrently running tracing")
 
     args = [(f, crash_archive, output_dir) for f in filenames]
-    '''
-    print(args[0])
-    for i in range(1):
-        run_trace(args[i])
-    exit(0)
-    '''
-    with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
-        executor.map(run_trace, args)
 
-
+    if single:
+        for i in range(1):
+            run_trace(args[i])
+    else:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
+            executor.map(run_trace, args)
 
 def _run(input_id, crash_file_path, corpus_archive, output_dir):
     crash_archive= f"{output_dir}/crash-#{input_id}.corpus.tar.zst"
 
     run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash_archive)
 
-    run_traces(output_dir, input_id, crash_archive)
+    run_traces(output_dir, input_id, crash_archive, False)
     print("[+] all done")
     ''''
     print("[+] producing crash archive for input id")

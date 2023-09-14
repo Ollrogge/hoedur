@@ -164,7 +164,7 @@ impl Corpus {
             CorpusResultKind::NewCoverage
         } else {
             match &base_input {
-                // smaller input with same unqiue features found
+                // smaller input with same unique features found
                 Some(base)
                     if base_input_uniq_features == base.uniq_features.len()
                         && result.read_count() < base.result.read_count()
@@ -265,7 +265,7 @@ impl Corpus {
         }
     }
 
-    pub fn add_result(&mut self, new_coverage: NewCoverage) -> Result<()> {
+    pub fn add_result(&mut self, new_coverage: NewCoverage, add_to_corpus: bool) -> Result<()> {
         log::debug!("add new input {}", new_coverage.result.file().id());
 
         self.update_rare_features();
@@ -286,7 +286,7 @@ impl Corpus {
         self.add_unique_features(&info);
 
         // add scheduled inputs to corpus
-        if info.result.category().schedule() {
+        if info.result.category().schedule() && add_to_corpus {
             // add input
             let id = info.result.input.id();
             let old = self.inputs.insert(id, info);

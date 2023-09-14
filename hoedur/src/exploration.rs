@@ -72,7 +72,7 @@ pub fn run_fuzzer(emulator: Emulator, config: ExplorationConfig) -> Result<()> {
         config.archive.clone(),
         emulator,
     )?
-    .run_exploration3(config.output_dir, config.duration)?;
+    .run_exploration4(config.output_dir, config.duration)?;
 
     Ok(())
 }

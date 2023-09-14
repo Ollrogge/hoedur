@@ -4,32 +4,24 @@ use capstone::prelude::*;
 use common::fs::bufwriter;
 use common::{hashbrown::hash_map::Entry, FxHashMap};
 use frametracer::AccessType;
-use qemu_rs::{memory::MemoryType, qcontrol, Address, Register, USize};
+use qemu_rs::register::FlagBits;
+use qemu_rs::{memory::MemoryType, qcontrol, Address, ConditionCode, Register, USize};
+use rune::ast::Condition;
+use rune::runtime::format::Flag;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::{fmt::Debug, io::Write, ops::Range, path::Path, path::PathBuf};
-use trace_analysis::register::ArchRegister;
 
 use rand::Rng;
 use serde_json;
 use trace_analysis::trace::{
-    self, Memory as SerializedMemory, SerializedEdge, SerializedInstruction, SerializedTrace,
+    self, EdgeType, Memory as SerializedMemory, SerializedEdge, SerializedInstruction,
+    SerializedTrace,
 };
 use trace_analysis::trace_analyzer::MemoryAddresses;
 
 use crate::StopReason;
-
-#[derive(Serialize, Debug, PartialEq, Clone)]
-enum EdgeType {
-    Direct,
-    Indirect,
-    Conditional,
-    Syscall,
-    Return,
-    Regular,
-    Unknown,
-}
 
 #[derive(PartialEq, Eq, Hash, Serialize, Copy, Clone)]
 struct Edge {
@@ -38,8 +30,8 @@ struct Edge {
 }
 
 impl Edge {
-    pub fn to_serialized_edge(&self, count: u64) -> SerializedEdge {
-        SerializedEdge::new(self.from as usize, self.to as usize, count as usize)
+    pub fn to_serialized_edge(&self, count: u64, typ: EdgeType) -> SerializedEdge {
+        SerializedEdge::new(self.from as usize, self.to as usize, count as usize, typ)
     }
 }
 
@@ -53,6 +45,17 @@ struct EdgeInfo {
 struct Value {
     is_set: bool,
     value: u32,
+}
+
+struct ItState {
+    condition: ConditionCode,
+    state: Vec<bool>,
+}
+
+impl ItState {
+    pub fn new(condition: ConditionCode, state: Vec<bool>) -> ItState {
+        ItState { condition, state }
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -165,6 +168,7 @@ pub struct RootCauseTrace {
     prev_ins_addr: Address,
     prev_mnemonic: Option<String>,
     prev_regs_written: Vec<Register>,
+    itstate: Option<ItState>,
     first_address: Address,
     image_base: Address,
     trace_dir: Option<PathBuf>,
@@ -199,6 +203,7 @@ impl RootCauseTrace {
             prev_ins_addr: 0,
             prev_mnemonic: None,
             prev_regs_written: vec![],
+            itstate: None,
             first_address: 0,
             image_base: 0,
             trace_dir,
@@ -225,7 +230,7 @@ impl RootCauseTrace {
         let edges = self
             .edges
             .iter()
-            .map(|(edge, edgeinfo)| edge.to_serialized_edge(edgeinfo.count))
+            .map(|(edge, edgeinfo)| edge.to_serialized_edge(edgeinfo.count, edgeinfo.edge_type))
             .collect();
 
         let trace = SerializedTrace {
@@ -384,7 +389,7 @@ impl RootCauseTrace {
         let registers = registers.context("failed to obtain registers")?;
 
         // only consider 4 byte because max inst length of ARMv7-M is 32 bit
-        let (mnemonic, edge_type, regs_written) = qcontrol()
+        let (mnemonic, edge_type, mut regs_written, is_it) = qcontrol()
             .memory_blocks()
             .find(|x| x.contains(pc))
             .and_then(|mem_block| {
@@ -415,12 +420,20 @@ impl RootCauseTrace {
                         )),
                         self.get_edge_type(&inst),
                         regs_written,
+                        inst.id().0 == ArmInsn::ARM_INS_IT as u32,
                     )
                 })
             })
-            .unwrap_or((None, EdgeType::Unknown, vec![]));
+            .unwrap_or((None, EdgeType::Unknown, vec![], false));
 
-        //println!("Regs written0: {:?} {:x}", regs_written, pc);
+        // capstone doesnt differentiate between xpsr and cpsr. Since we know that
+        // we are only considering Cortex-M, we adjust the name
+        for reg in regs_written.iter_mut() {
+            if reg.to_uppercase() == "CPSR" {
+                *reg = "XPSR".to_string();
+            }
+        }
+
         let regs_written = regs_written
             .iter()
             .map(|x| Register::try_from(x.as_str()))
@@ -428,13 +441,14 @@ impl RootCauseTrace {
             .unwrap_or(vec![]);
 
         // update register state to prevent false positives due to special arm
-        // instructions that restore register values and return e.g:
-        // pop        {type,r4,r5,r6,r7,pc}
+        // instructions that restore register values and returns
+        // e.g.: pop        {r3,r4,r5,r6,r7,pc}
         if self.prev_edge_type == EdgeType::Return {
             for i in 0..registers.len() {
                 self.reg_state[i] = registers[i];
             }
         }
+
         // update Regular type instruction after it has been executed
         if self.prev_edge_type == EdgeType::Regular {
             self.update_instructions(
@@ -443,6 +457,28 @@ impl RootCauseTrace {
                 self.prev_mnemonic.clone(),
                 self.prev_regs_written.clone(),
             )?;
+        }
+
+        // Conditional execution in ARM = conditional jumps in x86 so handle it as edges
+        // skip instructions as long as update_itstate returns true
+        // we don't have to update anything else except prev_edge_type as we are already
+        // in a conditional block so previous instruction should be counted as edge source
+        if self.itstate.is_some() {
+            let skip_inst = self.update_itstate(registers[Register::xPSR as usize]);
+            if skip_inst {
+                self.prev_edge_type = EdgeType::Conditional;
+                return Ok(());
+            }
+        }
+
+        // handle conditional execution
+        if is_it {
+            if self.itstate.is_some() {
+                anyhow::bail!("it instruction even though we still have itstate");
+            }
+            // TODO: handling itstate based on xPSR register doesn't work. QEMU doesnt seem to correctly set it?
+            // therefore we interpret the instruction string
+            self.init_itstate_str(mnemonic.clone().unwrap_or("".to_string()))?;
         }
 
         match edge_type {
@@ -457,10 +493,141 @@ impl RootCauseTrace {
         }
 
         self.detailed_trace_info.push(registers);
-
         self.prev_ins_addr = pc;
         self.prev_edge_type = edge_type;
         self.prev_regs_written = regs_written;
+        Ok(())
+    }
+
+    fn init_itstate(&mut self, xPSR: u32, mnemonic: String) {
+        // [26:25] = IT[7:6], [15:10] = IT[5:0]
+        let itstate = ((xPSR >> 25) & 3) << 5 | ((xPSR >> 10) & 0x3f);
+
+        let base_condition = (itstate >> 5) & 7;
+        let sz = (itstate & 0x1f).count_ones();
+        println!(
+            "Handle it state:  {} {:32b} {} {} {}",
+            mnemonic, xPSR, base_condition, itstate, sz
+        );
+    }
+
+    // todo: Implement sth like register index to make this hardcoding go away
+    // example: ite eq => Condition is eq, condition should be true for first instruction
+    // following it instruction (t) and false for the second (e)
+    fn update_itstate(&mut self, xPSR: u32) -> bool {
+        let mut should_skip_inst = false;
+        let bit_set = |val: u32, pos: u32| -> bool { (val & (1 << pos)) != 0 };
+        let bits_equal =
+            |val: u32, pos1: u32, pos2: u32| -> bool { bit_set(val, pos1) == bit_set(val, pos2) };
+        if let Some(ref mut itstate) = self.itstate {
+            let condition_set = match itstate.condition {
+                // equal, Z = 1
+                ConditionCode::EQ => bit_set(xPSR, FlagBits::Z.to_bit_index() as u32),
+                // Not equal, Z = 0
+                ConditionCode::NE => !bit_set(xPSR, FlagBits::Z.to_bit_index() as u32),
+                // Higher or same, unsigned C = 1
+                ConditionCode::CS => bit_set(xPSR, FlagBits::C.to_bit_index() as u32),
+                // Lower, unsigned C = 0
+                ConditionCode::CC => !bit_set(xPSR, FlagBits::C.to_bit_index() as u32),
+                // Negative, N = 1
+                ConditionCode::MI => bit_set(xPSR, FlagBits::N.to_bit_index() as u32),
+                // Positive or zero , N = 0
+                ConditionCode::PL => !bit_set(xPSR, FlagBits::N.to_bit_index() as u32),
+                // Overflow, V = 1
+                ConditionCode::VS => bit_set(xPSR, FlagBits::V.to_bit_index() as u32),
+                // No overflow, V = 0
+                ConditionCode::VC => !bit_set(xPSR, FlagBits::V.to_bit_index() as u32),
+                // Higher, unsigned, C = 1 && Z = 0
+                ConditionCode::HI => {
+                    bit_set(xPSR, FlagBits::C.to_bit_index() as u32)
+                        && !bit_set(xPSR, FlagBits::Z.to_bit_index() as u32)
+                }
+                // Lower or same, unsigned, C = 0 || Z = 1
+                ConditionCode::LS => {
+                    !bit_set(xPSR, FlagBits::C.to_bit_index() as u32)
+                        || bit_set(xPSR, FlagBits::Z.to_bit_index() as u32)
+                }
+                // Greater equal, signed, N = V
+                ConditionCode::GE => bits_equal(
+                    xPSR,
+                    FlagBits::N.to_bit_index() as u32,
+                    FlagBits::V.to_bit_index() as u32,
+                ),
+                // Less than, signed, N != V
+                ConditionCode::LT => !bits_equal(
+                    xPSR,
+                    FlagBits::N.to_bit_index() as u32,
+                    FlagBits::V.to_bit_index() as u32,
+                ),
+                // Greater than, signed, Z = 0 && N = V
+                ConditionCode::GT => {
+                    !bit_set(xPSR, FlagBits::Z.to_bit_index() as u32)
+                        && bits_equal(
+                            xPSR,
+                            FlagBits::N.to_bit_index() as u32,
+                            FlagBits::V.to_bit_index() as u32,
+                        )
+                }
+                // Less than or equal, signed, Z = 1 && N != V
+                ConditionCode::LE => {
+                    bit_set(xPSR, FlagBits::Z.to_bit_index() as u32)
+                        && !bits_equal(
+                            xPSR,
+                            FlagBits::N.to_bit_index() as u32,
+                            FlagBits::V.to_bit_index() as u32,
+                        )
+                }
+                _ => unimplemented!(),
+            };
+
+            if let Some(exec_if_condition_set) = itstate.state.pop() {
+                if exec_if_condition_set {
+                    // execute if condition is set, so skip if not set
+                    should_skip_inst = !condition_set;
+                } else {
+                    // execute if condition not set, so skip if set
+                    should_skip_inst = condition_set;
+                }
+
+                if itstate.state.len() == 0 {
+                    self.itstate = None;
+                }
+            }
+        }
+
+        should_skip_inst
+    }
+
+    fn init_itstate_str(&mut self, mnemonic: String) -> Result<()> {
+        let parts: Vec<&str> = mnemonic.split(' ').collect();
+
+        if parts.len() > 2 {
+            println!("It instruction has 2 condition codes ?: {:}", mnemonic);
+            unimplemented!();
+        }
+
+        let condition_code = ConditionCode::try_from(parts[1])?;
+
+        let mut conditions = vec![];
+        for c in parts[0].chars().skip(1) {
+            if c == 't' {
+                conditions.push(true);
+            } else {
+                conditions.push(false);
+            }
+        }
+        // reverse vector as conditions are evaluated from msb to lsb
+        conditions.reverse();
+
+        /*
+        println!(
+            "Itstate: {}, {:?}, {:?}",
+            mnemonic, condition_code, conditions
+        );
+        */
+
+        self.itstate = Some(ItState::new(condition_code, conditions));
+
         Ok(())
     }
 
@@ -484,7 +651,7 @@ impl RootCauseTrace {
             inst_data.count += 1;
             for i in 0..registers.len() {
                 // check if reg value changed OR reg is register operand that is written to
-                // why also when it is written to: for branches where pc is written
+                // regs_written is for flags registers which e.g. can be 0 but be written
                 if self.reg_state[i] != registers[i] || regs_written.contains(&i) {
                     // update reg value in global state
                     self.reg_state[i] = registers[i];
@@ -569,13 +736,16 @@ impl RootCauseTrace {
                         details.arch_detail()
                     {
                         // check if condition codes of inst are != unconditional
+                        // handle stuff like BNE (ARM_CC_NE)
                         if inst_detail.cc() != capstone::arch::arm::ArmCC::ARM_CC_AL {
                             return EdgeType::Conditional;
                         }
-                        // handle stuff like BNE (ARM_CC_NE)
+
                         for op in inst_detail.operands() {
                             match op.op_type {
+                                // immediate edge operand
                                 ArmOperandType::Imm(_) => return EdgeType::Direct,
+                                // reg as edge operand
                                 ArmOperandType::Reg(_) => return EdgeType::Indirect,
                                 _ => (),
                             }

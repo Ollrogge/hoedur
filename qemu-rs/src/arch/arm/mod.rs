@@ -10,6 +10,7 @@ pub mod systick;
 
 pub use exception::{CpuException, Exception};
 pub use nvic::{InternalException, NvicException};
+pub use register::ConditionCode;
 pub use register::Register;
 pub use systick::systick;
 
