@@ -46,7 +46,7 @@ def run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash
     cmd += ["exploration"]
     cmd += ['--archive-dir', output_dir]
     cmd += ['--import-corpus', crash_archive]
-    cmd += ['--duration', '3']
+    cmd += ['--duration', '5']
     run(cmd)
 
 def run_trace(args):

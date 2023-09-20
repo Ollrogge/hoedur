@@ -44,8 +44,8 @@ impl TryFrom<&str> for ConditionCode {
         Ok(match s.to_uppercase().as_str() {
             "EQ" => Self::EQ,
             "NE" => Self::NE,
-            "CS" => Self::CS,
-            "CC" => Self::CC,
+            "CS" | "HS" => Self::CS,
+            "CC" | "LO" => Self::CC,
             "MI" => Self::MI,
             "PL" => Self::PL,
             "VS" => Self::VS,
