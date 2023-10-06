@@ -6,11 +6,8 @@ use common::{hashbrown::hash_map::Entry, FxHashMap};
 use frametracer::AccessType;
 use qemu_rs::register::FlagBits;
 use qemu_rs::{memory::MemoryType, qcontrol, Address, ConditionCode, Register, USize};
-use rune::ast::Condition;
-use rune::runtime::format::Flag;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::{fmt::Debug, io::Write, ops::Range, path::Path, path::PathBuf};
 
 use rand::Rng;
@@ -332,12 +329,10 @@ impl RootCauseTrace {
         value: USize,
         size: u8,
     ) -> Result<()> {
-        // disregard everything with more than 8 bytes similar to aurora
-        /*
-        if access_type != AccessType::Write || size > 0x8 {
+        // disregard everything with more than 4 bytes similar to aurora
+        if access_type != AccessType::Write || size > 0x4 {
             return Ok(());
         }
-        */
 
         if size == 0x0 {
             log::info!("Memory access size 0? {:x}", pc);
@@ -393,36 +388,38 @@ impl RootCauseTrace {
             .memory_blocks()
             .find(|x| x.contains(pc))
             .and_then(|mem_block| {
-                let off = pc - mem_block.start;
-                self.cs
-                    .disasm_all(&mem_block.data[(off as usize)..(off as usize) + 4], 0)
-                    .ok()
-            })
-            .and_then(|insts| {
-                insts.into_iter().next().map(|inst| {
-                    let regs_written = self
-                        .cs
-                        .insn_detail(&inst)
-                        .and_then(|detail| {
-                            Ok(detail
-                                .regs_write()
-                                .iter()
-                                .filter_map(|&reg_id| self.cs.reg_name(reg_id))
-                                .collect::<Vec<_>>())
-                        })
-                        .unwrap_or(vec![]);
+                let off = (pc - mem_block.start) as usize;
 
-                    (
-                        Some(format!(
-                            "{} {}",
-                            inst.mnemonic().unwrap_or(""),
-                            inst.op_str().unwrap_or(""),
-                        )),
-                        self.get_edge_type(&inst),
-                        regs_written,
-                        inst.id().0 == ArmInsn::ARM_INS_IT as u32,
-                    )
-                })
+                // ARMv7-M thumb2 is a mix of 2 and 4 byte instructions, therefore
+                // we try to disassemble 4 bytes here and take the first valid inst found
+                let inst = self
+                    .cs
+                    .disasm_all(&mem_block.data[off..(off + 4)], 0)
+                    .ok()?;
+                let inst = inst.iter().next()?;
+
+                let regs_written = self
+                    .cs
+                    .insn_detail(&inst)
+                    .and_then(|detail| {
+                        Ok(detail
+                            .regs_write()
+                            .iter()
+                            .filter_map(|&reg_id| self.cs.reg_name(reg_id))
+                            .collect::<Vec<_>>())
+                    })
+                    .unwrap_or(vec![]);
+
+                Some((
+                    Some(format!(
+                        "{} {}",
+                        inst.mnemonic().unwrap_or(""),
+                        inst.op_str().unwrap_or(""),
+                    )),
+                    self.get_edge_type(&inst),
+                    regs_written,
+                    inst.id().0 == ArmInsn::ARM_INS_IT as u32,
+                ))
             })
             .unwrap_or((None, EdgeType::Unknown, vec![], false));
 
@@ -476,8 +473,9 @@ impl RootCauseTrace {
             if self.itstate.is_some() {
                 anyhow::bail!("it instruction even though we still have itstate");
             }
-            // TODO: handling itstate based on xPSR register doesn't work. QEMU doesnt seem to correctly set it?
-            // therefore we interpret the instruction string
+            // TODO: handling itstate based on xPSR register doesn't work. QEMU
+            // doesnt seem to correctly set it? therefore we interpret the instruction
+            // string instead of the register
             self.init_itstate_str(mnemonic.clone().unwrap_or("".to_string()))?;
         }
 

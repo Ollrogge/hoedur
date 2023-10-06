@@ -46,7 +46,7 @@ def run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash
     cmd += ["exploration"]
     cmd += ['--archive-dir', output_dir]
     cmd += ['--import-corpus', crash_archive]
-    cmd += ['--duration', '5']
+    cmd += ['--duration', '15']
     run(cmd)
 
 def run_trace(args):
@@ -77,7 +77,7 @@ def run_traces(output_dir, input_id, crash_archive, single = False):
     for f in glob.glob(f"{output_dir}/traces/non_crashes/*#*.bin"):
         filenames.append(f)
 
-    print("[+] concurrently running tracing")
+    print("[+] concurrently tracing")
 
     args = [(f, crash_archive, output_dir) for f in filenames]
 
@@ -91,62 +91,10 @@ def run_traces(output_dir, input_id, crash_archive, single = False):
 def _run(input_id, crash_file_path, corpus_archive, output_dir):
     crash_archive= f"{output_dir}/crash-#{input_id}.corpus.tar.zst"
 
-    run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash_archive)
+    #run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash_archive)
 
     run_traces(output_dir, input_id, crash_archive, False)
     print("[+] all done")
-    ''''
-    print("[+] producing crash archive for input id")
-    cmd = ['cargo', 'run' ,'--bin','hoedur-crash-archive', '--']
-    cmd += ['--corpus-archive', corpus_archive]
-    if input_id:
-        cmd += ['--input-id', str(input_id)]
-    else:
-        cmd += ['--input', crash_file_path]
-
-
-    cmd += [output_dir]
-    run(cmd)
-
-    print("[+] running exploration mode on crash archive")
-    cmd = ['cargo', 'run' ,'--bin','hoedur-arm', '--']
-    cmd += ['--import-config', crash_archive]
-    cmd += ["exploration"]
-    cmd += ['--archive-dir', output_dir]
-    cmd += ['--import-corpus', crash_archive]
-    cmd += ['--duration', '10']
-    run(cmd)
-
-
-    #exit(1)
-    # remove useless exploration corpus which was created to make fuzzer happy
-    if os.path.exists(f"{output_dir}/crash-#{input_id}.exploration.corpus.tar.zst"):
-        os.remove(f"{output_dir}/crash-#{input_id}.exploration.corpus.tar.zst")
-
-    elf = glob.glob(f"{output_dir}/*.elf")
-    if len(elf) == 0:
-        print("[-] Missing elf file required by aurora")
-    else:
-        os.system(f"cp {output_dir}/{elf} {output_dir}/traces/tmp_trace")
-
-    filenames = []
-    for f in glob.glob(f"{output_dir}/traces/crashes/*#*.bin"):
-        filenames.append(f)
-
-    for f in glob.glob(f"{output_dir}/traces/non_crashes/*#*.bin"):
-        filenames.append(f)
-
-    print("[+] concurrently running tracing")
-
-    args = [(f, crash_archive, output_dir) for f in filenames]
-    print(args[0])
-    for i in range(1):
-        run_trace(args[i])
-    exit(0)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
-        executor.map(run_trace, args)
-    '''
-
 
 if __name__ == '__main__':
     main()
