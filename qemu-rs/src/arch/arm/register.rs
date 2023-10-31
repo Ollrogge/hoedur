@@ -55,8 +55,9 @@ impl TryFrom<&str> for ConditionCode {
             "GE" => Self::GE,
             "LT" => Self::LT,
             "GT" => Self::GT,
+            "LE" => Self::LE,
 
-            register => anyhow::bail!("unknown condition flag {:?}", register),
+            flag => anyhow::bail!("unknown condition flag {:?}", flag),
         })
     }
 }

@@ -285,6 +285,7 @@ impl RootCauseTrace {
 
         trace_dir.pop();
         // write detailed inst / register state information
+        // todo: two match cases are the same ?
         let mut stream = match stop_reason {
             StopReason::Crash { .. } => {
                 trace_dir.push(format!("{}-full.bin", random_number));
@@ -445,6 +446,15 @@ impl RootCauseTrace {
                 self.reg_state[i] = registers[i];
             }
         }
+        // do the same after a push
+        // e.g.: push {r3, lr}
+        if let Some(mnemonic) = &self.prev_mnemonic {
+            if mnemonic.contains("push") {
+                for i in 0..registers.len() {
+                    self.reg_state[i] = registers[i];
+                }
+            }
+        }
 
         // update Regular type instruction after it has been executed
         if self.prev_edge_type == EdgeType::Regular {
@@ -497,6 +507,7 @@ impl RootCauseTrace {
         Ok(())
     }
 
+    // could use this func if QEMU would update xPSR correctly
     fn init_itstate(&mut self, xPSR: u32, mnemonic: String) {
         // [26:25] = IT[7:6], [15:10] = IT[5:0]
         let itstate = ((xPSR >> 25) & 3) << 5 | ((xPSR >> 10) & 0x3f);

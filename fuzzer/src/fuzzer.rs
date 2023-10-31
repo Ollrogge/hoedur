@@ -369,7 +369,11 @@ impl Fuzzer {
         Ok(())
     }
 
-    pub fn run_exploration3(&mut self, output_dir: PathBuf, duration: u64) -> Result<()> {
+    pub fn run_exploration_input_stream_specific(
+        &mut self,
+        output_dir: PathBuf,
+        duration: u64,
+    ) -> Result<()> {
         let input_id = unsafe { InputId::new(1) };
 
         let base_input = self
@@ -434,7 +438,12 @@ impl Fuzzer {
         Ok(())
     }
 
-    pub fn run_exploration4(&mut self, output_dir: PathBuf, duration: u64) -> Result<()> {
+    // for plain need to adjust whats saved to corpus
+    pub fn run_exploration_afl_like_or_plain(
+        &mut self,
+        output_dir: PathBuf,
+        duration: u64,
+    ) -> Result<()> {
         self.exploration_mode = Some(ExplorationMode::new(output_dir)?);
         self.mode = Mode::EXPLORATION;
         let input_id = unsafe { InputId::new(1) };
@@ -469,7 +478,11 @@ impl Fuzzer {
         Ok(())
     }
 
-    pub fn run_exploration(&mut self, output_dir: PathBuf, duration: u64) -> Result<()> {
+    pub fn run_exploration_only_initial(
+        &mut self,
+        output_dir: PathBuf,
+        duration: u64,
+    ) -> Result<()> {
         self.exploration_mode = Some(ExplorationMode::new(output_dir)?);
         self.mode = Mode::EXPLORATION;
 
@@ -485,11 +498,6 @@ impl Fuzzer {
         log::info!("Running exploration mode");
         let start = Instant::now();
         let end = Duration::from_secs(duration * 60);
-
-        let base_input = self
-            .get_input(&input_id)
-            .context("failed to get next corpus input")?
-            .clone();
 
         while !EXIT.load(Ordering::Relaxed) && Instant::now().duration_since(start) < end {
             // random input for mutation
@@ -932,6 +940,7 @@ impl Fuzzer {
             false,
         )?;
 
+        // only save new coverage or shorterinput cases to the corpus
         let input = match corpus_result {
             CorpusResult::ShorterInput(result) => Some(result.clone()),
             CorpusResult::NewCoverage(info) => Some(info.result().clone()),
@@ -956,7 +965,13 @@ impl Fuzzer {
 
                     should_import = true;
                 }
-                StopReason::EndOfInput => {
+                // all valid inputs that are not a crash
+                StopReason::EndOfInput
+                | StopReason::LimitReached(_)
+                | StopReason::InfiniteSleep
+                | StopReason::ExitHook
+                | StopReason::Script
+                | StopReason::Shutdown => {
                     self.exploration_mode
                         .as_mut()
                         .unwrap()

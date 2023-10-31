@@ -46,7 +46,7 @@ def run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash
     cmd += ["exploration"]
     cmd += ['--archive-dir', output_dir]
     cmd += ['--import-corpus', crash_archive]
-    cmd += ['--duration', '15']
+    cmd += ['--duration', '60']
     run(cmd)
 
 def run_trace(args):
@@ -91,8 +91,7 @@ def run_traces(output_dir, input_id, crash_archive, single = False):
 def _run(input_id, crash_file_path, corpus_archive, output_dir):
     crash_archive= f"{output_dir}/crash-#{input_id}.corpus.tar.zst"
 
-    #run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash_archive)
-
+    run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash_archive)
     run_traces(output_dir, input_id, crash_archive, False)
     print("[+] all done")
 
