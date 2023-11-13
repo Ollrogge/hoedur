@@ -172,10 +172,11 @@ pub struct RootCauseTrace {
     trace_cnt: u64,
     cs: Capstone,
     detailed_trace_info: Vec<Vec<u32>>,
+    is_crash: bool,
 }
 
 impl RootCauseTrace {
-    pub fn new(trace_file_path: Option<PathBuf>) -> Self {
+    pub fn new(trace_file_path: Option<PathBuf>, is_crash: bool) -> Self {
         let trace_dir = if let Some(path) = trace_file_path {
             let parent = path.parent().unwrap_or_else(|| &Path::new("."));
             Some(parent.to_path_buf())
@@ -207,14 +208,40 @@ impl RootCauseTrace {
             trace_cnt: 0,
             cs: cs,
             detailed_trace_info: vec![],
+            is_crash,
         }
     }
 
-    pub fn post_run(&mut self, stop_reason: &Option<StopReason>) -> Result<()> {
+    pub fn post_run(
+        &mut self,
+        stop_reason: &Option<StopReason>,
+        bugs: &Option<Vec<String>>,
+    ) -> Result<()> {
         let (trace_dir, stop_reason) = match (self.trace_dir.as_mut(), stop_reason) {
             (Some(a), Some(b)) => (a, b),
             (_, _) => return Ok(()),
         };
+
+        // Due to the underdeterministic nature of operating systems, there
+        // can be inputs which crashed during exploration but did not crash during
+        // tracing or the other way around. In this case we need to ignore those trace results
+        // in order to not corrupt the statistical analysis.
+        /*
+        match stop_reason {
+            StopReason::RomWrite { .. }
+            | StopReason::NonExecutable { .. }
+            | StopReason::Crash { .. } => {
+                if !self.is_crash {
+                    return Ok(());
+                }
+            }
+            _ => {
+                if self.is_crash {
+                    return Ok(());
+                }
+            }
+        }
+        */
 
         log::info!("Writing serialized trace to file");
 
@@ -264,20 +291,30 @@ impl RootCauseTrace {
             trace_dir.pop();
         }
 
+        // bugs we identified based on hook scripts
+        // solution for finding false negatives that don't crash even though the
+        // bug was triggered
+        let is_bug = match bugs {
+            Some(bugs) => true,
+            None => false,
+        };
         // write crash / non_crash trace
         let mut rng = rand::thread_rng();
         let random_number: u64 = rng.gen();
-        let mut stream = match stop_reason {
+
+        let is_crash = match stop_reason {
             StopReason::RomWrite { .. }
             | StopReason::NonExecutable { .. }
-            | StopReason::Crash { .. } => {
-                trace_dir.push(format!("crashes/{}-summary.bin", random_number));
-                bufwriter(&trace_dir)
-            }
-            _ => {
-                trace_dir.push(format!("non_crashes/{}-summary.bin", random_number));
-                bufwriter(&trace_dir)
-            }
+            | StopReason::Crash { .. } => true,
+            _ => false,
+        };
+
+        let mut stream = if is_crash || is_bug {
+            trace_dir.push(format!("crashes/{}-summary.bin", random_number));
+            bufwriter(&trace_dir)
+        } else {
+            trace_dir.push(format!("non_crashes/{}-summary.bin", random_number));
+            bufwriter(&trace_dir)
         }
         .context("Unable to open trace file")?;
 
@@ -285,18 +322,14 @@ impl RootCauseTrace {
 
         trace_dir.pop();
         // write detailed inst / register state information
-        // todo: two match cases are the same ?
-        let mut stream = match stop_reason {
-            StopReason::Crash { .. } => {
-                trace_dir.push(format!("{}-full.bin", random_number));
-                bufwriter(&trace_dir)
-            }
-            _ => {
-                trace_dir.push(format!("{}-full.bin", random_number));
-                bufwriter(&trace_dir)
-            }
+        let mut stream = if is_crash || is_bug {
+            trace_dir.push(format!("{}-full.bin", random_number));
+            bufwriter(&trace_dir)
+        } else {
+            trace_dir.push(format!("{}-full.bin", random_number));
+            bufwriter(&trace_dir)
         }
-        .context("Unable to open detailed trace info file")?;
+        .context("Unable to open detailed trace_info file")?;
 
         bincode::serialize_into(&mut stream, &self.detailed_trace_info)
             .context("serialized detailed trace info")?;
@@ -384,7 +417,6 @@ impl RootCauseTrace {
 
         let registers = registers.context("failed to obtain registers")?;
 
-        // only consider 4 byte because max inst length of ARMv7-M is 32 bit
         let (mnemonic, edge_type, mut regs_written, is_it) = qcontrol()
             .memory_blocks()
             .find(|x| x.contains(pc))
@@ -392,7 +424,8 @@ impl RootCauseTrace {
                 let off = (pc - mem_block.start) as usize;
 
                 // ARMv7-M thumb2 is a mix of 2 and 4 byte instructions, therefore
-                // we try to disassemble 4 bytes here and take the first valid inst found
+                // we try to disassemble every instruction contained within 4 bytes
+                // and take the first valid inst found
                 let inst = self
                     .cs
                     .disasm_all(&mem_block.data[off..(off + 4)], 0)

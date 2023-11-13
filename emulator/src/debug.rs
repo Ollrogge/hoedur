@@ -83,6 +83,7 @@ impl EmulatorDebugData {
         enabled: bool,
         trace: bool,
         trace_type: TraceType,
+        is_crash: bool,
         coverage: bool,
         symbolizer: Symbolizer,
         exit_hooks: Vec<ExitHook>,
@@ -171,7 +172,7 @@ impl EmulatorDebugData {
         };
 
         let root_cause_trace = if trace_type == TraceType::RootCause {
-            Some(RootCauseTrace::new(trace_file_path))
+            Some(RootCauseTrace::new(trace_file_path, is_crash))
         } else {
             None
         };
@@ -246,11 +247,13 @@ impl EmulatorDebugData {
             return Ok(None);
         }
 
+        let bugs = BUGS.lock().take();
+
         if self.trace_type() == TraceType::RootCause && mode != RunMode::Setup {
             self.root_cause_trace
                 .as_mut()
                 .unwrap()
-                .post_run(stop_reason)?;
+                .post_run(stop_reason, &bugs)?;
         }
 
         // call custom hooks
@@ -268,7 +271,7 @@ impl EmulatorDebugData {
         }
 
         // collect input bugs (set by hook scripts)
-        Ok(BUGS.lock().take())
+        Ok(bugs)
     }
 
     fn flush_trace(&mut self) -> Result<()> {

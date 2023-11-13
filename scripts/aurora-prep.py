@@ -46,15 +46,19 @@ def run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash
     cmd += ["exploration"]
     cmd += ['--archive-dir', output_dir]
     cmd += ['--import-corpus', crash_archive]
-    cmd += ['--duration', '60']
+    cmd += ['--duration', '10']
     run(cmd)
 
 def run_trace(args):
-    f, crash_archive, output_dir = args
+    f, crash_archive, output_dir, is_crash = args
+    cur_dir = os.path.dirname(os.path.realpath(__file__))
     cmd = ['cargo', 'run', '--bin', 'hoedur-arm', '--']
     cmd += ['--import-config', crash_archive]
     cmd += ['--debug', '--trace']
+    cmd += ['--hook', f'{cur_dir}/../emulator/hooks/memcpy.rn']
     cmd += ['--trace-type', 'root-cause']
+    if is_crash:
+        cmd += ['--is-crash']
     cmd += ['--trace-file', f"{output_dir}/traces/root-cause_trace.bin"]
     cmd += ["run", f]
 
@@ -70,6 +74,19 @@ def run_traces(output_dir, input_id, crash_archive, single = False):
     else:
         os.system(f"cp {output_dir}/{elf} {output_dir}/traces/tmp_trace")
 
+
+    for f in glob.glob(f"{output_dir}/traces/crashes/*-full.bin"):
+        os.remove(f)
+
+    for f in glob.glob(f"{output_dir}/traces/crashes/*-summary.bin"):
+        os.remove(f)
+
+    for f in glob.glob(f"{output_dir}/traces/non_crashes/*-full.bin"):
+        os.remove(f)
+
+    for f in glob.glob(f"{output_dir}/traces/non_crashes/*-summary.bin"):
+        os.remove(f)
+
     filenames = []
     for f in glob.glob(f"{output_dir}/traces/crashes/*#*.bin"):
         filenames.append(f)
@@ -79,13 +96,13 @@ def run_traces(output_dir, input_id, crash_archive, single = False):
 
     print("[+] concurrently tracing")
 
-    args = [(f, crash_archive, output_dir) for f in filenames]
+    args = [(f, crash_archive, output_dir, "non_crashes" not in f) for f in filenames]
 
     if single:
         for i in range(1):
             run_trace(args[i])
     else:
-        with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=12) as executor:
             executor.map(run_trace, args)
 
 def _run(input_id, crash_file_path, corpus_archive, output_dir):

@@ -1,0 +1,12 @@
+pub fn main(api) {
+    api.on_basic_block(Some(symbolizer::resolve("memcpy")?), memcpy);
+}
+
+fn memcpy(pc) {
+    let len = register::read("R2")?;
+
+    // negative length => integer overflow or underflow
+    if (len > 0x8000_0000) {
+        input::add_bug("memcpy-huge-length");
+    }
+}

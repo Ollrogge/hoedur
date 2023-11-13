@@ -464,8 +464,6 @@ impl Fuzzer {
                 .context("Failed to get random input.")?
                 .fork();
 
-            //let input = base_input.fork();
-
             self.run_mutations(input, None, &self.pre_fuzzing.clone())?;
 
             log::info!(
@@ -940,28 +938,34 @@ impl Fuzzer {
             false,
         )?;
 
-        // only save new coverage or shorterinput cases to the corpus
+        // only save new coverage, or shorter inputs
         let input = match corpus_result {
-            CorpusResult::ShorterInput(result) => Some(result.clone()),
             CorpusResult::NewCoverage(info) => Some(info.result().clone()),
+            CorpusResult::ShorterInput(result) => Some(result.clone()),
             _ => None,
         };
 
         let mut should_import = false;
         if let Some(mut input) = input {
             // shorten input
-            input.file_mut().remove_unread_values();
-            input.file_mut().remove_empty_streams();
+            //input.file_mut().remove_unread_values();
+            //input.file_mut().remove_empty_streams();
 
-            // all three stopreasons are crash reasons
+            // all crash types
             match result.stop_reason {
                 StopReason::Crash { .. }
                 | StopReason::NonExecutable { .. }
                 | StopReason::RomWrite { .. } => {
+                    // double the size of the input streams to again reduce the chance
+                    // of false negatives during tracing
+                    let mut clone = input.file().clone();
+                    clone = clone.merge(input.file().clone());
+
+                    //self.exploration_mode.as_mut().unwrap().save_crash(&clone)?;
                     self.exploration_mode
                         .as_mut()
                         .unwrap()
-                        .save_crash(&input.file())?;
+                        .save_crash(input.file())?;
 
                     should_import = true;
                 }
@@ -969,17 +973,31 @@ impl Fuzzer {
                 StopReason::EndOfInput
                 | StopReason::LimitReached(_)
                 | StopReason::InfiniteSleep
-                | StopReason::ExitHook
+                // exit hooks means something went wrong in the emulation, so dont save
+                // e.g. assert_panic, RFCORE_ASSERT_failure
+                //| StopReason::ExitHook
                 | StopReason::Script
                 | StopReason::Shutdown => {
+                    let mut clone = input.file().clone();
+                    clone = clone.merge(input.file().clone());
+
                     self.exploration_mode
                         .as_mut()
                         .unwrap()
-                        .save_input(&input.file())?;
+                        .save_input(input.file())?;
                 }
                 _ => (),
             }
         }
+
+        // Minimization tries to reduce the length of the input stream to its minimum
+        // This increases the chance for false negatives during root cause analysis
+        //
+        // Example: An integer underflow occurs, but before memcpy crashes
+        // and interrupt occurs which tries to read an mmio value.
+        // The mmio stream however is empty and therefore the emulation stops (EndOfInput),
+        // resulting in a non_crash which has all the traits of a crash
+        // => false negative
 
         self.process_result(result, import, should_import)
 

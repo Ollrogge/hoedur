@@ -289,7 +289,7 @@ impl Corpus {
         if info.result.category().schedule() && add_to_corpus {
             // add input
             let id = info.result.input.id();
-            let old = self.inputs.insert(id, info);
+            self.inputs.insert(id, info);
             self.input_id.push(id);
 
             //debug_assert!(old.is_none());
