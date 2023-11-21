@@ -1,5 +1,28 @@
 # Hödur
 
+Hoedur is a firmware fuzzing implementation which utilizes a multi-stream input format that is described in our USENIX Security 2023 paper `HOEDUR: Embedded Firmware Fuzzing using Multi-Stream Inputs`.
+
+Our artifact evaluation is available at [hoedur-experiments](https://github.com/fuzzware-fuzzer/hoedur-experiments) including details for [citing our paper](https://github.com/fuzzware-fuzzer/hoedur-experiments#citing-our-paper).
+
+## Repository Overview
+
+Hoedur consists of different main components as listed below:
+
+| Directory | Description |
+| --        | --          |
+| emulator       | High-level emulator logic |
+| fuzzer         | Hoedur fuzzer implementation |
+| hoedur         | Command-line logic and runner |
+| scripts        | Usability and evaluation scripts |
+| modeling       | Integration with Fuzzware modeling |
+| frametracer    | Trace events |
+| hoedur-analyze | Utilities to evaluate fuzzing runs |
+| archive        | Reading and writing fuzzing corpus archives |
+| common         | Configurations and common utilities |
+| qemu-build     | Qemu build, link, and interface code generation utility |
+| qemu-rs        | Low-level emulator impl |
+| qemu-sys       | Qemu rust bindings |
+
 ## Getting Started
 
 ### Dependencies
