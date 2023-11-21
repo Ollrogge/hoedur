@@ -81,7 +81,7 @@ def main():
             for time in timings:
                 source, time = time
                 if time:
-                    print(f'time: {time}, input id: {source}', time, end='')
+                    print(f'time: {time}, input id: {source}', end='')
                 else:
                     print('', '-', end='')
 
