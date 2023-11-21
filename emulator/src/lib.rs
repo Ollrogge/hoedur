@@ -398,6 +398,7 @@ impl<I: Input + Debug> EmulatorData<I> {
         self.on_exception_debug(pc, exception)?;
 
         if exception.is_fatal() {
+            self.on_exception_fatal_debug(pc, exception)?;
             self.stop(StopReason::Crash { pc, ra, exception });
             log::debug!("fatal exception {} at {:#x?} detected", exception, pc);
         }

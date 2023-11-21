@@ -1,0 +1,14 @@
+
+pub fn main(api) {
+    api.on_interrupt_fatal(Some(0x41), Some(0x41), on_interrupt_fatal);
+    api.on_instruction(Some(0x20cb88), on_crash_inst);
+}
+
+fn on_crash_inst(pc) {
+    dump::regs();
+}
+
+fn on_interrupt_fatal(pc, exception) {
+    println!("test");
+    dump::regs();
+}

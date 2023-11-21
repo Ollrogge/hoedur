@@ -494,6 +494,20 @@ impl<I: Input + Debug> EmulatorData<I> {
         // self.trace_basic_block(basic_block(pc)?)
     }
 
+    pub(crate) fn on_exception_fatal_debug(
+        &mut self,
+        pc: Address,
+        exception: Exception,
+    ) -> Result<()> {
+        if let Some(runtime) = &mut self.debug.custom_hooks {
+            runtime
+                .on_interrupt_fatal(pc, exception)
+                .context("call custom IRQ hook")?;
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn on_exception_debug(&mut self, pc: Address, exception: Exception) -> Result<()> {
         log::debug!("exception {} at {:#x?}", exception, pc);
         if !self.debug.enabled() {

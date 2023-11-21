@@ -63,7 +63,7 @@ def main():
             # collect timings
             for report_timings in target_timing:
                 if bug in report_timings:
-                    time = report_timings[bug]['time']
+                    time = report_timings[bug]
                 else:
                     time = None
 
@@ -79,8 +79,9 @@ def main():
 
             # timings
             for time in timings:
+                source, time = time
                 if time:
-                    print('', time, end='')
+                    print(f'time: {time}, input id: {source}', time, end='')
                 else:
                     print('', '-', end='')
 

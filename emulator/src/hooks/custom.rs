@@ -262,6 +262,25 @@ impl HookRuntime {
         )
     }
 
+    pub fn on_interrupt_fatal(&self, pc: Address, interrupt: Interrupt) -> Result<()> {
+        self.call_hooks(
+            "on_interrupt_fatal",
+            |api| {
+                [InterruptFilter {
+                    pc: Some(0x41),
+                    interrupt: Some(0x41.into()),
+                }]
+                .into_iter()
+                .filter_map(|filter| api.interrupt.get(&filter).map(|funcs| funcs.iter()))
+                .flatten()
+            },
+            vec![
+                Value::Integer(pc as i64),
+                Value::Integer(interrupt.num() as i64),
+            ],
+        )
+    }
+
     pub fn on_interrupt(&self, pc: Address, interrupt: Interrupt) -> Result<()> {
         self.call_hooks(
             "on_interrupt",
@@ -667,6 +686,7 @@ fn type_emulator() -> Result<Module> {
     module.inst_fn("on_basic_block", ScriptApi::on_basic_block)?;
     module.inst_fn("on_instruction", ScriptApi::on_instruction)?;
     module.inst_fn("on_interrupt", ScriptApi::on_interrupt)?;
+    module.inst_fn("on_interrupt_fatal", ScriptApi::on_interrupt_fatal)?;
     module.inst_fn("on_mmio_read", ScriptApi::on_mmio_read)?;
     module.inst_fn("on_mmio_write", ScriptApi::on_mmio_write)?;
     module.inst_fn("on_ram_read", ScriptApi::on_ram_read)?;
@@ -811,6 +831,21 @@ impl ScriptApi {
             interrupt,
             function.type_hash()
         );
+        self.interrupt
+            .entry(InterruptFilter {
+                pc,
+                interrupt: interrupt.map(Interrupt::from),
+            })
+            .or_default()
+            .push(function);
+    }
+
+    fn on_interrupt_fatal(
+        &mut self,
+        pc: Option<Address>,
+        interrupt: Option<i32>,
+        function: Function,
+    ) {
         self.interrupt
             .entry(InterruptFilter {
                 pc,
