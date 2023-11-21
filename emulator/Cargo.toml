@@ -36,7 +36,7 @@ variant_count = "1.1.0"
 zstd = "0.12.3"
 capstone="*"
 serde_json="*"
-trace_analysis = {path = "/home/h0ps/Uni/MasterArbeit/aurora/root_cause_analysis/trace_analysis"}
+trace_analysis = {path = "../../aurora/root_cause_analysis/trace_analysis"}
 rand="*"
 
 [dev-dependencies]
