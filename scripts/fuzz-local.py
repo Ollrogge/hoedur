@@ -99,7 +99,7 @@ def do_local_fuzzer_run(cores, name, targets, runs, fuzzers, modes, duration, tr
             for (models, fuzzware) in mode_args:
                 for run in runs:
                     fuzz_args = (
-                        f'arm/{target}/corpus/',
+                        f'arm/{target}/corpus',
                         target,
                         fuzzer,
                         models,

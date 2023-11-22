@@ -79,11 +79,11 @@ def main():
 
             # timings
             for time in timings:
-                time, source = time
-                if time:
-                    print(f' time: {time}, input id: {source}, ', end='')
-                else:
+                if time is None:
                     print('', '-', end='')
+                else:
+                    time, source = time
+                    print(f' time: {time}, input id: {source}, ', end='')
 
             # endline
             print('')
