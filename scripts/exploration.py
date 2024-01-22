@@ -7,9 +7,6 @@ import shutil
 from fuzz_common import *
 import concurrent.futures
 
-
-# TODO: later merge this into fuzz.py
-
 def main():
     parser = argparse.ArgumentParser(description="Prepare files for aurora")
     parser.add_argument("-crash_id", help="Id of crashing input you want to analyze")
