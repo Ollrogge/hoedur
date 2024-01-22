@@ -100,7 +100,6 @@ pub mod fuzzer {
     pub const MUTATOR_SPLICE: bool = true;
     pub const MUTATOR_CHRONO_ERASE_VALUES: bool = true;
     pub const MUTATOR_CHRONO_COPY_VALUE_PART: bool = true;
-    //pub const MUTATOR_DICTIONARY: bool = false;
     pub const MUTATOR_DICTIONARY: bool = true;
     pub const MUTATOR_INTERESTING_VALUE: bool = true;
 
