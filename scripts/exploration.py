@@ -24,8 +24,10 @@ def _run(input_id, crash_file_path, corpus_archive,duration):
     run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash_archive, duration)
 
 def run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash_archive, duration):
+    build("hoedur-crash-archive")
     print("[+] producing crash archive for input id")
-    cmd = ['cargo', 'run' ,'--bin','hoedur-crash-archive', '--']
+
+    cmd = ['hoedur-crash-archive', '--']
     cmd += ['--corpus-archive', corpus_archive]
     if input_id:
         cmd += ['--input-id', str(input_id)]
