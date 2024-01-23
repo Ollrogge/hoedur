@@ -275,9 +275,6 @@ pub struct ArgumentsDebug {
     #[arg(long, value_enum, default_value_t = TraceType::Normal)]
     pub trace_type: TraceType,
 
-    #[arg(long, display_order = 720, default_value_t = false)]
-    pub is_crash: bool,
-
     /// Write trace to file path
     #[arg(
         long,

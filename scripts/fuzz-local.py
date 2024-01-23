@@ -43,6 +43,7 @@ def local_runner(core, cores, fuzz_runs, max):
         try:
             output = subprocess.check_output(['pgrep', 'hoedur']).splitlines()
         except Exception as e:
+            print(e)
             output = []
         for line in output:
             if len(line) > 0:
@@ -93,13 +94,14 @@ def do_local_fuzzer_run(cores, name, targets, runs, fuzzers, modes, duration, tr
 
         mode_args.append(tuple(args))
 
+
     # collect list of fuzz runs
     for fuzzer in fuzzers:
         for target in targets:
             for (models, fuzzware) in mode_args:
                 for run in runs:
                     fuzz_args = (
-                        f'arm/{target}/corpus',
+                        f'/corpus',
                         target,
                         fuzzer,
                         models,

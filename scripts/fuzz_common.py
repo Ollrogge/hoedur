@@ -142,7 +142,7 @@ class CorpusExistsException(Exception):
         return f'ERROR: corpus already exists: {self.path}'
 
 
-def init_hoedur(corpus_base, target, fuzzer, models, fuzzware, duration, run_id, overwrite):
+def init_hoedur(corpus_base, target, fuzzer, models, fuzzware, duration, run_id, overwrite, exploration=False):
     init()
 
     modes = ''
@@ -154,9 +154,11 @@ def init_hoedur(corpus_base, target, fuzzer, models, fuzzware, duration, run_id,
         modes += '-plain'
 
     target_name = target.replace('/', '-')
+    target_name = target_name.replace('.', '')
 
     name = f'TARGET-{target_name}-FUZZER-{fuzzer}-RUN-{run_id:02d}-DURATION-{duration}-MODE{modes}'
     target_dir = '{}/{}/{}'.format(HOEDUR_TARGETS, HOEDUR_ARCH, target)
+    corpus_base = target_dir + corpus_base
     corpus = corpus_base + '/' + name
     corpus_tar = f'{corpus}.corpus.tar.zst'
 
@@ -174,11 +176,17 @@ def init_hoedur(corpus_base, target, fuzzer, models, fuzzware, duration, run_id,
     # make sure hoedur is built
     build_hoedur(fuzzer)
 
-    hoedur = [
-        FUZZER[fuzzer],
-        '--name', name,
-        '--config', f'{target_dir}/{CONFIG_FILE}'
-    ]
+    if exploration:
+        hoedur = [
+            FUZZER[fuzzer],
+            '--name', name,
+        ]
+    else:
+        hoedur = [
+            FUZZER[fuzzer],
+            '--name', name,
+            '--config', f'{target_dir}/{CONFIG_FILE}'
+        ]
 
     if models:
         hoedur += ['--models', f'{target_dir}/{MODELS_FILE}']

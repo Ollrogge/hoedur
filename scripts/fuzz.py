@@ -34,7 +34,7 @@ def do_fuzzer_run(corpus_base, target, fuzzer, models, fuzzware, statistics, dur
     # run fuzzer
     print(f'running fuzzer {fuzzer} for {duration} with run id {run_id} ...')
 
-    cmd = hoedur + ['fuzz', '--archive-dir', corpus_base]
+    cmd = hoedur + ['fuzz', '--archive-dir', os.path.dirname(corpus)]
 
     if statistics:
         cmd += ['--statistics']

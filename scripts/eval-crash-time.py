@@ -12,7 +12,7 @@ from fuzz_common import *
 
 def main():
     parser = argparse.ArgumentParser(description='collect crash times')
-    parser.add_argument('corpus')
+    parser.add_argument('corpus', help="Directory containing the corpus")
     parser.add_argument('--output-json', type=str)
     parser.add_argument('--include-non-crashing-inputs', action='store_true')
     parser.add_argument('--exclude-unknown-crashes', action='store_true')

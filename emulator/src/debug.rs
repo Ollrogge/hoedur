@@ -83,7 +83,6 @@ impl EmulatorDebugData {
         enabled: bool,
         trace: bool,
         trace_type: TraceType,
-        is_crash: bool,
         coverage: bool,
         symbolizer: Symbolizer,
         exit_hooks: Vec<ExitHook>,
@@ -172,7 +171,7 @@ impl EmulatorDebugData {
         };
 
         let root_cause_trace = if trace_type == TraceType::RootCause {
-            Some(RootCauseTrace::new(trace_file_path, is_crash))
+            Some(RootCauseTrace::new(trace_file_path))
         } else {
             None
         };

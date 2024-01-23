@@ -204,7 +204,6 @@ impl RunnerConfig {
             debug_enabled,
             trace,
             args.debug.trace_type,
-            args.debug.is_crash,
             args.debug.trace_file,
             coverage,
             args.debug.hooks,

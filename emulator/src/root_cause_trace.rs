@@ -171,11 +171,10 @@ pub struct RootCauseTrace {
     trace_cnt: u64,
     cs: Capstone,
     detailed_trace_info: Vec<Vec<u32>>,
-    is_crash: bool,
 }
 
 impl RootCauseTrace {
-    pub fn new(trace_file_path: Option<PathBuf>, is_crash: bool) -> Self {
+    pub fn new(trace_file_path: Option<PathBuf>) -> Self {
         let trace_dir = if let Some(path) = trace_file_path {
             let parent = path.parent().unwrap_or_else(|| &Path::new("."));
             Some(parent.to_path_buf())
@@ -207,7 +206,6 @@ impl RootCauseTrace {
             trace_cnt: 0,
             cs: cs,
             detailed_trace_info: vec![],
-            is_crash,
         }
     }
 
@@ -220,27 +218,6 @@ impl RootCauseTrace {
             (Some(a), Some(b)) => (a, b),
             (_, _) => return Ok(()),
         };
-
-        // Due to the underdeterministic nature of operating systems, there
-        // can be inputs which crashed during exploration but did not crash during
-        // tracing or the other way around. In this case we need to ignore those trace results
-        // in order to not corrupt the statistical analysis.
-        /*
-        match stop_reason {
-            StopReason::RomWrite { .. }
-            | StopReason::NonExecutable { .. }
-            | StopReason::Crash { .. } => {
-                if !self.is_crash {
-                    return Ok(());
-                }
-            }
-            _ => {
-                if self.is_crash {
-                    return Ok(());
-                }
-            }
-        }
-        */
 
         log::info!("Writing serialized trace to file");
 
