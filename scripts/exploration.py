@@ -29,7 +29,7 @@ def run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash
     build("hoedur-crash-archive")
     print("[+] producing crash archive for input id")
 
-    cmd = ['hoedur-crash-archive', '--']
+    cmd = ['hoedur-crash-archive']
     cmd += ['--corpus-archive', corpus_archive]
     if input_id:
         cmd += ['--input-id', str(input_id)]
@@ -39,17 +39,21 @@ def run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash
     cmd += [output_dir]
     run(cmd)
 
-    binary = "hoedur-exploration"
+    if os.path.exists(f"{output_dir}/crash-#{input_id}.exploration.corpus.tar.zst"):
+        os.remove(f"{output_dir}/crash-#{input_id}.exploration.corpus.tar.zst")
+
+    fuzzer = "hoedur-exploration"
     try:
-        subprocess.check_call([binary, '--help'],
+        subprocess.check_call([f"{fuzzer}-arm", '--help'],
                                   stdout=subprocess.DEVNULL)
     except:
-        binary = "hoedur"
+        fuzzer = "hoedur"
 
-    cmd = init_hoedur_import_config(binary, crash_archive)
+    cmd = init_hoedur_import_config(fuzzer, crash_archive)
     cmd += ["exploration"]
     cmd += ['--import-corpus', crash_archive]
     cmd += ['--archive-dir', output_dir]
+    cmd += ['--duration', duration]
 
     print("Cmd: ", cmd)
     run(cmd)

@@ -8,7 +8,7 @@ from glob import glob
 def main():
     parser = argparse.ArgumentParser(description="Create Hoedur config from bin / elf file")
 
-    parser.add_argument("target", help="Name of target directory")
+    parser.add_argument("path", help="Path of directory containing firmware")
 
     args = parser.parse_args()
 
@@ -26,7 +26,7 @@ def main():
     file_path = file_path[0]
     file_dir = os.path.dirname(file_path)
 
-    for f in glob(f"{file_path}/config.yml"):
+    for f in glob(f"{file_dir}/config.yml"):
         os.remove(f)
 
     subprocess.check_output(["fuzzware", "genconfig", file_path], stderr=subprocess.STDOUT)

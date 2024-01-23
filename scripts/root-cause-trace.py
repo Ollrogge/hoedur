@@ -21,7 +21,8 @@ def main():
 def run_trace(args):
     f, crash_archive, output_dir = args
     cur_dir = os.path.dirname(os.path.realpath(__file__))
-    cmd = ['cargo', 'run', '--bin', 'hoedur-arm', '--']
+    #cmd = ['cargo', 'run', '--bin', 'hoedur-arm', '--']
+    cmd = ['hoedur-arm']
     cmd += ['--import-config', crash_archive]
     cmd += ['--debug', '--trace']
     cmd += ['--hook', f'{cur_dir}/../emulator/hooks/memcpy.rn']
