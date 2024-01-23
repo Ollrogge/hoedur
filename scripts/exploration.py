@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 from fuzz_common import *
 
@@ -37,7 +39,14 @@ def run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash
     cmd += [output_dir]
     run(cmd)
 
-    cmd = init_hoedur_import_config("hoedur-exploration", crash_archive)
+    binary = "hoedur-exploration"
+    try:
+        subprocess.check_call([binary, '--help'],
+                                  stdout=subprocess.DEVNULL)
+    except:
+        binary = "hoedur"
+
+    cmd = init_hoedur_import_config(binary, crash_archive)
     cmd += ["exploration"]
     cmd += ['--import-corpus', crash_archive]
     cmd += ['--archive-dir', output_dir]

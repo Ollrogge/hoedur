@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import os
 import subprocess
@@ -29,7 +31,7 @@ def main():
 
     subprocess.check_output(["fuzzware", "genconfig", file_path], stderr=subprocess.STDOUT)
 
-    subprocess.check_output(["hoedur-convert-fuzzware-config", "config.yml", "config.yml"], stderr=subprocess.STDOUT)
+    subprocess.check_output(["hoedur-convert-fuzzware-config", f"{file_path}/config.yml", f"{file_path}/config.yml"], stderr=subprocess.STDOUT)
 
     print("[+] config.yml generated")
 
