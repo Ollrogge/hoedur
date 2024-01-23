@@ -25,6 +25,7 @@ MODELS_FILE = env('MODELS_FILE', 'models.yml.zst')
 
 FUZZER = {
     'hoedur': f'{HOEDUR_BIN}-{HOEDUR_ARCH}',
+    'hoedur-exploration': f'{HOEDUR_BIN}-exploration-{HOEDUR_ARCH}',
     'hoedur-single-stream': f'{HOEDUR_BIN}-single-stream-{HOEDUR_ARCH}',
     'hoedur-dict': f'{HOEDUR_BIN}-dict-{HOEDUR_ARCH}',
     'hoedur-single-stream-dict': f'{HOEDUR_BIN}-single-stream-dict-{HOEDUR_ARCH}',

@@ -37,7 +37,7 @@ def run_exploration(input_id, crash_file_path, corpus_archive, output_dir, crash
     cmd += [output_dir]
     run(cmd)
 
-    cmd = init_hoedur_import_config("hoedur", crash_archive)
+    cmd = init_hoedur_import_config("hoedur-exploration", crash_archive)
     cmd += ["exploration"]
     cmd += ['--import-corpus', crash_archive]
     cmd += ['--archive-dir', output_dir]
