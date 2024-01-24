@@ -192,8 +192,6 @@ impl RootCauseTrace {
             .build()
             .expect("failed to init capstone");
 
-        RootCauseTrace::create_dirs(trace_dir.as_ref().unwrap()).unwrap();
-
         RootCauseTrace {
             instructions: FxHashMap::default(),
             edges: FxHashMap::default(),
@@ -210,24 +208,6 @@ impl RootCauseTrace {
             cs: cs,
             detailed_trace_info: vec![],
         }
-    }
-
-    fn create_dirs(trace_dir: &PathBuf) -> Result<()> {
-        let crashes = trace_dir.join("crashes");
-        let non_crashes = trace_dir.join("non_crashes");
-
-        if crashes.is_dir() {
-            fs::remove_dir_all(crashes.clone()).context("remove crashes dir")?;
-        }
-
-        if non_crashes.is_dir() {
-            fs::remove_dir_all(non_crashes.clone()).context("remove non_crashes dir")?;
-        }
-
-        fs::create_dir_all(crashes)?;
-        fs::create_dir_all(non_crashes)?;
-
-        Ok(())
     }
 
     pub fn post_run(

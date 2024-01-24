@@ -34,7 +34,8 @@ def run_trace(args):
 
 def run_tracing(corpus_dir, input_id, crash_archive):
     if not os.path.exists(f"{corpus_dir}/traces"):
-        os.makedirs(f"{corpus_dir}/traces")
+        os.makedirs(f"{corpus_dir}/traces/crashes")
+        os.makedirs(f"{corpus_dir}/traces/non_crashes")
     else:
         for f in glob.glob(f"{corpus_dir}/traces/crashes/*-full.bin"):
             os.remove(f)
