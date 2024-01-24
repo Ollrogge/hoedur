@@ -8,7 +8,7 @@ def main():
     parser.add_argument("-crash_id", help="Id of crashing input you want to analyze")
     parser.add_argument("-crash_file_path", help="Path to the crashing sample")
     parser.add_argument("-duration", help="duration in minutes",default=10)
-    parser.add_argument("corpus_archive", help="Path to corupus archive")
+    parser.add_argument("corpus_archive", help="Path to corpus archive")
     args = parser.parse_args()
 
     if not args.crash_id and not args.crash_file_path:

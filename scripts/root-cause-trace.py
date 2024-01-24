@@ -32,27 +32,27 @@ def run_trace(args):
 
     run(cmd)
 
-def run_tracing(output_dir, input_id, crash_archive):
-    if not os.path.exists(f"{output_dir}/traces"):
-        os.makedirs(f"{output_dir}/traces")
+def run_tracing(corpus_dir, input_id, crash_archive):
+    if not os.path.exists(f"{corpus_dir}/traces"):
+        os.makedirs(f"{corpus_dir}/traces")
+    else:
+        for f in glob.glob(f"{corpus_dir}/traces/crashes/*-full.bin"):
+            os.remove(f)
 
-    for f in glob.glob(f"{output_dir}/traces/crashes/*-full.bin"):
-        os.remove(f)
+        for f in glob.glob(f"{corpus_dir}/traces/crashes/*-summary.bin"):
+            os.remove(f)
 
-    for f in glob.glob(f"{output_dir}/traces/crashes/*-summary.bin"):
-        os.remove(f)
+        for f in glob.glob(f"{corpus_dir}/traces/non_crashes/*-full.bin"):
+            os.remove(f)
 
-    for f in glob.glob(f"{output_dir}/traces/non_crashes/*-full.bin"):
-        os.remove(f)
-
-    for f in glob.glob(f"{output_dir}/traces/non_crashes/*-summary.bin"):
-        os.remove(f)
+        for f in glob.glob(f"{corpus_dir}/traces/non_crashes/*-summary.bin"):
+            os.remove(f)
 
     filenames = []
-    for f in glob.glob(f"{output_dir}/exploration/crashes/*#*.bin"):
+    for f in glob.glob(f"{corpus_dir}/exploration/crashes/*#*.bin"):
         filenames.append(f)
 
-    for f in glob.glob(f"{output_dir}/exploration/non_crashes/*#*.bin"):
+    for f in glob.glob(f"{corpus_dir}/exploration/non_crashes/*#*.bin"):
         filenames.append(f)
 
     if len(filenames) == 0:
@@ -61,16 +61,16 @@ def run_tracing(output_dir, input_id, crash_archive):
 
     print("[+] concurrently tracing")
 
-    args = [(f, crash_archive, output_dir) for f in filenames]
+    args = [(f, crash_archive, corpus_dir) for f in filenames]
 
     cpus = os.cpu_count()
     with concurrent.futures.ProcessPoolExecutor(max_workers=cpus-1) as executor:
         executor.map(run_trace, args)
 
-def _run(input_id, output_dir):
-    crash_archive= f"{output_dir}/corpus/crash-#{input_id}.corpus.tar.zst"
+def _run(input_id, corpus_dir):
+    crash_archive= f"{corpus_dir}/crash-#{input_id}.corpus.tar.zst"
 
-    run_tracing(output_dir, input_id, crash_archive)
+    run_tracing(corpus_dir, input_id, crash_archive)
 
 
 if __name__ == '__main__':
