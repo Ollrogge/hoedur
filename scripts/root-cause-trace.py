@@ -9,14 +9,14 @@ import concurrent.futures
 def main():
     parser = argparse.ArgumentParser(description="Prepare files for aurora")
     parser.add_argument("-crash_id", help="Id of crashing input you want to analyze")
-    parser.add_argument("output_dir", help="directory where to store crash archive")
+    parser.add_argument("corpus_dir", help="Corpus directory")
     args = parser.parse_args()
 
     input_id = 0
     if args.crash_id:
         input_id = int(args.crash_id, 10)
 
-    _run(input_id, args.output_dir)
+    _run(input_id, args.corpus_dir)
 
 def run_trace(args):
     f, crash_archive, output_dir = args
@@ -27,21 +27,14 @@ def run_trace(args):
     cmd += ['--debug', '--trace']
     cmd += ['--hook', f'{cur_dir}/../emulator/hooks/memcpy.rn']
     cmd += ['--trace-type', 'root-cause']
-    cmd += ['--trace-file', f"{output_dir}/traces/root-cause_trace.bin"]
+    cmd += ['--trace-file', f"{output_dir}/exploration/root-cause_trace.bin"]
     cmd += ["run", f]
 
     run(cmd)
 
 def run_tracing(output_dir, input_id, crash_archive):
-
     if not os.path.exists(f"{output_dir}/traces"):
         os.makedirs(f"{output_dir}/traces")
-
-    elf = glob.glob(f"{output_dir}/*.elf")
-    if len(elf) == 0:
-        print("[-] Missing elf file required by aurora")
-    else:
-        os.system(f"cp {output_dir}/{elf} {output_dir}/traces/tmp_trace")
 
     for f in glob.glob(f"{output_dir}/traces/crashes/*-full.bin"):
         os.remove(f)
@@ -56,11 +49,15 @@ def run_tracing(output_dir, input_id, crash_archive):
         os.remove(f)
 
     filenames = []
-    for f in glob.glob(f"{output_dir}/traces/crashes/*#*.bin"):
+    for f in glob.glob(f"{output_dir}/exploration/crashes/*#*.bin"):
         filenames.append(f)
 
-    for f in glob.glob(f"{output_dir}/traces/non_crashes/*#*.bin"):
+    for f in glob.glob(f"{output_dir}/exploration/non_crashes/*#*.bin"):
         filenames.append(f)
+
+    if len(filenames) == 0:
+        print("[-] No exploration files found")
+        exit(1)
 
     print("[+] concurrently tracing")
 

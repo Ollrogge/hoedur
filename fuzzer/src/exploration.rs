@@ -34,8 +34,8 @@ pub struct ExplorationMode {
 }
 
 fn create_dirs(output_dir: &PathBuf) -> Result<()> {
-    let crashes = output_dir.join("traces/crashes");
-    let non_crashes = output_dir.join("traces/non_crashes");
+    let crashes = output_dir.join("exploration/crashes");
+    let non_crashes = output_dir.join("exploration/non_crashes");
 
     if crashes.is_dir() {
         fs::remove_dir_all(crashes.clone()).context("remove crashes dir")?;
@@ -77,7 +77,7 @@ impl ExplorationMode {
     pub fn save_crash(&mut self, f: &InputFile) -> Result<()> {
         let crash_path = self
             .output_dir
-            .join(format!("traces/crashes/input-{}.bin", f.id()));
+            .join(format!("exploration/crashes/input-{}.bin", f.id()));
 
         self.unique_crashes += 1;
 
@@ -89,7 +89,7 @@ impl ExplorationMode {
     pub fn save_input(&mut self, f: &InputFile) -> Result<()> {
         let non_crash_path = self
             .output_dir
-            .join(format!("traces/non_crashes/input-{}.bin", f.id()));
+            .join(format!("exploration/non_crashes/input-{}.bin", f.id()));
 
         let writer =
             bufwriter(&non_crash_path).context("unable to create writer for crash path")?;
