@@ -27,7 +27,7 @@ def run_trace(args):
     cmd += ['--debug', '--trace']
     cmd += ['--hook', f'{cur_dir}/../emulator/hooks/memcpy.rn']
     cmd += ['--trace-type', 'root-cause']
-    cmd += ['--trace-file', f"{output_dir}/exploration/root-cause_trace.bin"]
+    cmd += ['--trace-file', f"{output_dir}/traces/root-cause_trace.bin"]
     cmd += ["run", f]
 
     run(cmd)
