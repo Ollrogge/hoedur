@@ -33,8 +33,6 @@ def run_trace(args):
     run(cmd)
 
 def run_tracing(output_dir, input_id, crash_archive):
-    if os.path.exists(f"{output_dir}/crash-#{input_id}.exploration.corpus.tar.zst"):
-        os.remove(f"{output_dir}/crash-#{input_id}.exploration.corpus.tar.zst")
 
     if not os.path.exists(f"{output_dir}/traces"):
         os.makedirs(f"{output_dir}/traces")
@@ -73,7 +71,7 @@ def run_tracing(output_dir, input_id, crash_archive):
         executor.map(run_trace, args)
 
 def _run(input_id, output_dir):
-    crash_archive= f"{output_dir}/crash-#{input_id}.corpus.tar.zst"
+    crash_archive= f"{output_dir}/corpus/crash-#{input_id}.corpus.tar.zst"
 
     run_tracing(output_dir, input_id, crash_archive)
 
